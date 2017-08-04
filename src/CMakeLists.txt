@@ -23,6 +23,7 @@ endif()
 
 if( ENABLE_XRDCL )
   add_subdirectory( XrdCl )
+  add_subdirectory( XrdEc )
 endif()
 
 if( XRDCLHTTP_SUBMODULE )
