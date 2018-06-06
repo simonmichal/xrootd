@@ -403,6 +403,9 @@ static  int   Emsg(const char *, XrdOucErrInfo  &, int, const char *x,
                    XrdOfsHandle *hP);
 static  int   Emsg(const char *, XrdOucErrInfo  &, int, const char *x,
                    const char *y="");
+        int   ctlFAttr(XrdSfsFACtl            &faCtl,
+                       XrdOucErrInfo          &einfo,
+                       const XrdSecEntity     *client);
 static  int   fsError(XrdOucErrInfo &myError, int rc);
 const char   *Split(const char *Args, const char **Opq, char *Path, int Plen);
         int   Stall(XrdOucErrInfo  &, int, const char *);

@@ -99,6 +99,7 @@
 #define SFS_FSCTL_STATCC  5 // Return Cluster Config status
 #define SFS_FSCTL_PLUGIN  8 // Return Implementation Dependent Data
 #define SFS_FSCTL_PLUGIO 16 // Return Implementation Dependent Data
+#define SFS_FSCTL_FATTR  32 // Process extended attributes
 
 // Return values for integer & XrdSfsXferSize returning XrdSfs methods
 //
@@ -457,7 +458,7 @@ virtual int            fctl(const int               cmd,
 //! @param  client - Client's identify (see common description).
 //!
 //! @return SFS_OK   a null response is sent.
-//! @return SFS_DATA error.code    length of the data to be sent.
+//!         SFS_DATA error.code    length of the data to be sent.
 //!                  error.message contains the data to be sent.
 //!         o/w      one of SFS_ERROR, SFS_REDIRECT, or SFS_STALL.
 //-----------------------------------------------------------------------------
