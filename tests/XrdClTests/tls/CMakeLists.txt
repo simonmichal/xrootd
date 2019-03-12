@@ -1,6 +1,7 @@
 
 include( XRootDCommon )
 
+set( LIB_XRD_EC  XrdEc-${PLUGIN_VERSION} )
 set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x" )
 
 #-------------------------------------------------------------------------------
@@ -18,10 +19,11 @@ target_link_libraries(
   XrdPosix
   XrdXml
   XrdAppUtils
+  XrdEc
+  uuid
   dl
   pthread )
-  
-  
+
 add_executable(
   xrdsrv-tls
   xrdsrv-tls.cc )
