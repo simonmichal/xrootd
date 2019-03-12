@@ -78,7 +78,7 @@ endif()
 #-------------------------------------------------------------------------------
 # Linux
 #-------------------------------------------------------------------------------
-if( ${CMAKE_SYSTEM_NAME} STREQUAL "Linux" )
+#if( ${CMAKE_SYSTEM_NAME} STREQUAL "Linux" )
   set( Linux TRUE )
   include( GNUInstallDirs )
   add_definitions( -D__linux__=1 )

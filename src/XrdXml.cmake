@@ -6,9 +6,9 @@ if ( LIBXML2_FOUND )
         XrdXml/XrdXmlRdrXml2.cc
         XrdXml/XrdXmlRdrXml2.hh )
    set( XRDXML2_LIBRARIES ${LIBXML2_LIBRARIES} )
-   if( CMAKE_VERSION VERSION_LESS "2.8" OR ${Solaris} STREQUAL "TRUE")
-      INCLUDE_DIRECTORIES( ${LIBXML2_INCLUDE_DIR} )
-   endif()
+   
+   include_directories( ${LIBXML2_INCLUDE_DIR} )
+   
 else()
    set( XRDXML2_READER_FILES "" )
    set( XRDXML2_LIBRARIES "" )
@@ -47,17 +47,13 @@ target_link_libraries(
 set_target_properties(
   XrdXml
   PROPERTIES
-  INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/src/XrdXml/.
   VERSION   ${XRD_XML_VERSION}
   SOVERSION ${XRD_XML_SOVERSION}
   INTERFACE_LINK_LIBRARIES ""
   LINK_INTERFACE_LIBRARIES "" )
 
 if ( LIBXML2_FOUND )
-   set_target_properties(
-        XrdXml
-        PROPERTIES
-        INCLUDE_DIRECTORIES ${LIBXML2_INCLUDE_DIR} )
+
 endif()
 
 #-------------------------------------------------------------------------------
