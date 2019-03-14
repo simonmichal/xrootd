@@ -53,6 +53,7 @@ namespace XrdEc
   //------------------------------------------------------------------------
   void Block::Reset( const std::string                &path,
                            uint64_t                    offset,
+                     const placement_group            &plgr,
                      const std::vector<placement_t>   &placement,
                      const std::vector<uint64_t>      &version )
   {
@@ -61,6 +62,7 @@ namespace XrdEc
     // initialized parameters
     this->path      = path;
     blkid           = offset / cfg.datasize;
+    this->plgr      = plgr;
     this->placement = blkid < placement.size() ? placement[blkid] : placement_t();
     this->version   = blkid < version.size()   ? version[blkid]   : 0;
     cursor          = 0;

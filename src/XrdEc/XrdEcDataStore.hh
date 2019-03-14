@@ -29,12 +29,20 @@ namespace XrdEc
 
       DataStore( const std::string &path ) : path( path )
       {
-        std::tie( version, placement ) = metadata.Get( path );
+        // TODO
+        // for now we assume that MGM handles file locking
+        // 0. if it is a new file create a placement group for the file
+        // 1. get placement group
+
+        MetadataProvider &metadata = MetadataProvider::Instance();
+        plgr = metadata.GetPlacementGroup( path );
+        std::tie( version, placement ) = metadata.GetPlacement( path, plgr );
       }
 
       virtual ~DataStore()
       {
-        metadata.Set( path, version, placement );
+        MetadataProvider &metadata = MetadataProvider::Instance();
+        metadata.SetPlacement( path, plgr, version, placement );
       }
 
       uint64_t Read( uint64_t offset, uint64_t size, void *buffer )
@@ -49,7 +57,7 @@ namespace XrdEc
         if( !wrtcache )
         {
           wrtcache.reset( new Block( BlockPool::Create() ) );
-          wrtcache->Reset( path, offset, placement, version ); // TODO if we are going to overwrite the whole block there is no need to pre-load the old value
+          wrtcache->Reset( path, offset, plgr, placement, version ); // TODO if we are going to overwrite the whole block there is no need to pre-load the old value
         }
 
         const char *buff = reinterpret_cast<const char*>( buffer );
@@ -65,7 +73,7 @@ namespace XrdEc
           {
             wrtcache->Sync();
             wrtcache->Update( version, placement );
-            wrtcache->Reset( path, offset, placement, version ); // TODO if we are going to overwrite the whole block there is no need to pre-load the old value
+            wrtcache->Reset( path, offset, plgr, placement, version ); // TODO if we are going to overwrite the whole block there is no need to pre-load the old value
           }
 
           size -= written;
@@ -113,12 +121,12 @@ namespace XrdEc
       std::string              path;
 
     public:
+      placement_group          plgr;
       std::vector<uint64_t>    version;
       std::vector<placement_t> placement;
 
     private:
       std::unique_ptr<Block>   wrtcache;
-      MetadataProvider         metadata;
   };
 
 } /* namespace XrdEc */

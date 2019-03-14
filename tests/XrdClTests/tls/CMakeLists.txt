@@ -2,7 +2,9 @@
 include( XRootDCommon )
 
 set( LIB_XRD_EC  XrdEc-${PLUGIN_VERSION} )
-set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x" )
+#set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x" )
+
+include_directories( ${CMAKE_SOURCE_DIR}/src/qclient/include/ ${CMAKE_SOURCE_DIR}/src/qclient/src/fmt/include/)
 
 #-------------------------------------------------------------------------------
 # xrdcopy
@@ -22,6 +24,7 @@ target_link_libraries(
   XrdEc
   uuid
   dl
+  qclient
   pthread )
 
 add_executable(

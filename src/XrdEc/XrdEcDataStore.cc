@@ -37,6 +37,7 @@ namespace XrdEc
       if( placement[blkid].empty() )
       {
         placement.pop_back();
+        version.pop_back();
         continue;
       }
 
@@ -47,6 +48,7 @@ namespace XrdEc
         ftrs.emplace_back( Async( Rm( *fs, url.GetPath() ) >> [fs]( XRootDStatus& ){ } ) );
       }
       placement.pop_back();
+      version.pop_back();
     }
 
     XRootDStatus status;
@@ -55,7 +57,12 @@ namespace XrdEc
       std::future<XRootDStatus> ftr = std::move( ftrs.back() );
       ftrs.pop_back();
       XRootDStatus st = ftr.get();
-      if( status.IsOK() && !st.IsOK() )
+      if( st.IsOK() || st.code == errNotFound ) continue;
+      // TODO in the future we should probably just log this and ignore all
+      // errors
+      // important thing is metadata gets updated and this chunk is no longer
+      // available to the user
+      if( status.IsOK() )
         status = st;
     }
 
@@ -69,7 +76,7 @@ namespace XrdEc
     uint64_t offset = blkid * cfg.datasize;
 
     Block blk( BlockPool::Create() );
-    blk.Reset( path, offset, placement, version );
+    blk.Reset( path, offset, plgr, placement, version );
     blk.Truncate( datasize );
     blk.Sync();
     blk.Update( version, placement );
@@ -84,9 +91,13 @@ namespace XrdEc
     // we wont actually create those blocks, we will rather use
     // the sparse file functionality
     placement.resize( fullblk );
+    version.resize( fullblk, 0 );
 
     if( lstblk )
+    {
       placement.emplace_back();
+      version.emplace_back( 0 );
+    }
     else
       lstblk = cfg.blksize;
 

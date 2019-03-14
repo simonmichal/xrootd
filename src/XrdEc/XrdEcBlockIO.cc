@@ -90,7 +90,7 @@ namespace XrdEc
   {
     using namespace XrdCl;
 
-    OpenFlags::Flags flags = Place( chunkid, block.placement, *block.generator, relocate );
+    OpenFlags::Flags flags = Place( chunkid, block.placement, *block.generator, block.plgr, relocate );
 
     Config &cfg = Config::Instance();
 

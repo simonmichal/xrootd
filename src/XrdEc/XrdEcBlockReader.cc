@@ -77,7 +77,7 @@ namespace XrdEc
   BlockReader::BlkRdCtx::~BlkRdCtx()
   {
     // if we have failed do nothing
-    if( buffers.empty() ) return; // <<<< TODO why why why ... ???
+    if( buffers.empty() ) return;
 
     Config &cfg = Config::Instance();
 

@@ -40,8 +40,6 @@ namespace XrdEc
 
       uint8_t  maxrelocate;
 
-      std::vector<std::string> hosts;
-
       RedundancyProvider redundancy;
 
       std::string        ckstype;
@@ -62,22 +60,7 @@ namespace XrdEc
                  ckstype( "md5" ),
                  repairthreads( 4 )
       {
-        hosts.push_back( "file://localhost/data/dir0" );
-        hosts.push_back( "file://localhost/data/dir1" );
-        hosts.push_back( "file://localhost/data/dir2" );
-        hosts.push_back( "file://localhost/data/dir3" );
-        hosts.push_back( "file://localhost/data/dir4" );
-        hosts.push_back( "file://localhost/data/dir5" );
-        hosts.push_back( "file://localhost/data/dir6" );
-        hosts.push_back( "file://localhost/data/dir7" );
-        hosts.push_back( "file://localhost/data/dir8" );
-        hosts.push_back( "file://localhost/data/dir9" );
-        hosts.push_back( "file://localhost/data/dir10" );
-        hosts.push_back( "file://localhost/data/dir11" );
-        hosts.push_back( "file://localhost/data/dir12" );
-        hosts.push_back( "file://localhost/data/dir13" );
-        hosts.push_back( "file://localhost/data/dir14" );
-        hosts.push_back( "file://localhost/data/dir15" );
+
       }
 
       Config( const Config& ) = delete;

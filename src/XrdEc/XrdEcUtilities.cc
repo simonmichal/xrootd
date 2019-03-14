@@ -71,11 +71,12 @@ namespace XrdEc
   XrdCl::OpenFlags::Flags Place( uint8_t                      chunkid,
                                  placement_t                 &placement,
                                  std::default_random_engine  &generator,
+                                 const placement_group       &plgr,
                                  bool                         relocate )
   {
     Config &cfg = Config::Instance();
 
-    static std::uniform_int_distribution<uint32_t>  distribution( 0, cfg.hosts.size() - 1 );
+    static std::uniform_int_distribution<uint32_t>  distribution( 0, plgr.size() - 1 );
 
     bool exists = !placement.empty() && !placement[chunkid].empty();
 
@@ -89,7 +90,7 @@ namespace XrdEc
     std::string host;
     do
     {
-      host = cfg.hosts[distribution( generator )];
+      host = plgr[distribution( generator )];
     }
     while( std::count( placement.begin(), placement.end(), host ) );
 

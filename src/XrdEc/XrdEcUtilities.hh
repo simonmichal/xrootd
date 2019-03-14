@@ -22,6 +22,8 @@ namespace XrdEc
   //----------------------------------------------------------------------------
   typedef std::vector<std::string>  placement_t;
 
+  typedef std::vector<std::string> placement_group;
+
   //----------------------------------------------------------------------------
   //! a buffer type
   //----------------------------------------------------------------------------
@@ -41,7 +43,6 @@ namespace XrdEc
       //------------------------------------------------------------------------
       IOError( const XrdCl::XRootDStatus &st ) noexcept : st( st ), msg( st.ToString() )
       {
-
       }
 
       //------------------------------------------------------------------------
@@ -49,7 +50,6 @@ namespace XrdEc
       //------------------------------------------------------------------------
       IOError( const IOError &err ) noexcept : st( err.st ), msg( err.st.ToString() )
       {
-
       }
 
       //------------------------------------------------------------------------
@@ -226,7 +226,7 @@ namespace XrdEc
   std::string Checksum( const std::string &type, void *buffer, uint32_t size );
 
   //------------------------------------------------------------------------
-  //! Find a new location (host) for given chunk.
+  //! Find a new location (host) for given chunk. TODO (update)
   //!
   //! @param chunkid   : ID of the chunk to be relocated
   //! @param relocate  : true if the chunk should be relocated even if
@@ -235,6 +235,7 @@ namespace XrdEc
   XrdCl::OpenFlags::Flags Place( uint8_t                      chunkid,
                                  placement_t                 &placement,
                                  std::default_random_engine  &generator,
+                                 const placement_group       &plgr,
                                  bool                         relocate );
 
 }

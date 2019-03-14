@@ -29,7 +29,9 @@ namespace XrdEc
     }
     while( bytesrd > 0 && size > 0 );
 
-    IOError err{ XrdCl::XRootDStatus() };
+//    IOError err{ XrdCl::XRootDStatus() };
+
+    XrdCl::XRootDStatus err;
 
     while( !resps.empty() )
     {
@@ -42,13 +44,13 @@ namespace XrdEc
       }
       catch( IOError &ex )
       {
-        if( err.Status().IsOK() )
-          err = ex;
+        if( err.IsOK() )
+          err = ex.Status();
       }
       resps.pop_front();
     }
 
-    if( !err.Status().IsOK() ) throw err;
+    if( !err.IsOK() ) throw IOError( err );
 
     return ret;
   }

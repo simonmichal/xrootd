@@ -64,6 +64,7 @@ namespace XrdEc
       //------------------------------------------------------------------------
       void Reset( const std::string                &path,
                         uint64_t                    offset,
+                  const placement_group            &plgr,
                   const std::vector<placement_t>   &placement,
                   const std::vector<uint64_t>      &version );
 
@@ -111,7 +112,7 @@ namespace XrdEc
       //------------------------------------------------------------------------
       void Update( std::vector<uint64_t> &version, std::vector<placement_t> &placement )
       {
-        // make sure the version is vector is of the right size
+        // make sure the version vector is of the right size
         if( blkid >= version.size() )
           version.resize( blkid + 1, 0 );
         // set the version of this block
@@ -137,6 +138,11 @@ namespace XrdEc
       //! path of the file to whom the block of data belongs to
       //------------------------------------------------------------------------
       std::string  path;
+
+      //------------------------------------------------------------------------
+      //! Placement table for the current file
+      //------------------------------------------------------------------------
+      placement_group  plgr;
 
       //------------------------------------------------------------------------
       //! placement policy (list of host) for this block

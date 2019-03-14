@@ -1,7 +1,7 @@
 include( XRootDCommon )
 include( ExternalProject )
 
-include_directories( XrdEc )
+include_directories( XrdEc ${CMAKE_SOURCE_DIR}/src/qclient/include/ ${CMAKE_SOURCE_DIR}/src/qclient/src/fmt/include/)
 
 #-------------------------------------------------------------------------------
 # Build isa-l

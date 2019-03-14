@@ -5,20 +5,11 @@
  *      Author: simonm
  */
 
-#include "XrdEcMetadataProvider.hh"
+#include "XrdEc/XrdEcMetadataProvider.hh"
 
 namespace XrdEc
 {
 
-  MetadataProvider::MetadataProvider()
-  {
-    // TODO Auto-generated constructor stub
 
-  }
-
-  MetadataProvider::~MetadataProvider()
-  {
-    // TODO Auto-generated destructor stub
-  }
 
 } /* namespace XrdEc */

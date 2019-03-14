@@ -229,7 +229,7 @@ void RedundancyProvider::replication( std::unordered_map<uint8_t, chbuff> &buffe
       healthy = itr->second->Get();
   }
 
-  if( !healthy ) IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
+  if( !healthy ) throw IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
 
   // now replicate, by now 'buffers' should contain all chunks
   for( uint8_t i = 0; i < cfg.nbchunks; ++i )

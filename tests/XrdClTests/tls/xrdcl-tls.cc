@@ -44,6 +44,9 @@
 #include <stdlib.h>
 #include <random>
 
+#include "qclient/QSet.hh"
+#include "qclient/AsyncHandler.hh"
+
 //#include "XrdEc/XrdEcUtilities.hh"
 //#include "XrdEc/XrdEcDataStore.hh"
 
@@ -110,6 +113,8 @@ std::string input =
 
 
 using namespace XrdCl;
+
+int runnb = 0;
 
 void Cleanup()
 {
@@ -610,8 +615,10 @@ int RandomGrow( XrdEc::DataStore &store, std::default_random_engine &generator )
   return 0;
 }
 
-int RandomizedTests()
+int RandomizedTests( time_t seed )
 {
+  ++runnb;
+
   std::cout << "Original size: " << input.size() << std::endl;
 
   Cleanup();
@@ -620,7 +627,6 @@ int RandomizedTests()
 
   store.Write( 0, input.size(), input.c_str() );
   store.Sync();
-  time_t seed = time( 0 );
   std::cout << __func__ << ": seed = " << seed << std::endl;
   std::default_random_engine generator( seed );
 
@@ -628,9 +634,11 @@ int RandomizedTests()
   typedef int (*randfunc)( XrdEc::DataStore&, std::default_random_engine& );
   randfunc functions[] = { ReadRandomChunk, AppendRandomChunk, OverwriteRandomChunk, RandomShrink, RandomSparseWrite, RandomGrow };
 
-  for( int i = 0; i < 100; ++i )
+  for( int i = 0; i < 60; ++i )
   {
     std::cout << i << ": ";
+
+//    if( i == 49 && runnb == 2 ) break;
 
     int ret = functions[funcid( generator )]( store, generator );
     if( ret )
@@ -651,6 +659,35 @@ int main( int argc, char** argv )
 {
   std::cout << "There we go!" << std::endl;
 
+//  {
+//    using namespace qclient;
+//    QClient cl{ "quarkdb-test", 7777, {} };
+//    redisReplyPtr reply = cl.exec("PING", "hello there").get();
+//
+//    if( reply == nullptr )
+//    {
+//      std::cout << "reply == nullptr" << std::endl;
+//      return 1;
+//    }
+//
+//    if(reply->type != REDIS_REPLY_STRING )
+//    {
+//      std::cout << "type != REDIS_REPLY_STRING" << std::endl;
+//      return 1;
+//    }
+//
+//    if( reply->len <= 0 )
+//    {
+//      std::cout << "len <= 0" << std::endl;
+//      return 1;
+//    }
+//
+//    std::cout << reply->str << std::endl;
+//  }
+//
+//  std::cout << "Done with qclient." << std::endl;
+//  return 0; // for now
+
 //  std::cout << "Simple tests:" << std::endl;
 //
 //  if( ReadTest() ) return 1;
@@ -668,7 +705,10 @@ int main( int argc, char** argv )
   int rc = 0;
   try
   {
-    rc = RandomizedTests();
+    rc = RandomizedTests ( time( 0 ) );
+    if( rc ) return rc;
+    std::cout << std::endl << "And now the second round so we know the version and placement were correctly preserved!" << std::endl << std::endl;
+    rc = RandomizedTests( time( 0 ) );
   }
   catch( std::exception &ex )
   {
