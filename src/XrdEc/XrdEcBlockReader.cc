@@ -87,7 +87,7 @@ namespace XrdEc
       // make sure we stop using user buffers before set the exception
       buffers.clear();
       std::exception_ptr exptr = std::make_exception_ptr(
-          IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) ) );
+          IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError, IOError::ioTooManyErrors ) ) );
       prms.set_exception( exptr );
       return;
     }

@@ -86,6 +86,11 @@ namespace XrdEc
         return st;
       }
 
+      enum
+      {
+        ioTooManyErrors
+      };
+
     private:
 
       //------------------------------------------------------------------------

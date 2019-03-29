@@ -31,6 +31,8 @@
 #include <functional>
 #include <limits>
 #include <random>
+#include <thread>
+#include <future>
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -295,7 +297,22 @@ int ReadRandomChunk( XrdEc::DataStore &store, std::default_random_engine &genera
   std::uniform_int_distribution<int> corrdistr( 0, 9 );
   uint8_t corrutpprob = corrdistr( generator );
   if( corrutpprob > 6 ) CorruptChunk( store, offset, size, generator );
-  uint64_t bytesrd = store.Read( offset, size, buffer.get() );
+  uint64_t bytesrd = 0 ;
+  try
+  {
+    bytesrd = store.Read( offset, size, buffer.get() );
+  }
+  catch( const XrdEc::IOError &ex )
+  {
+    XrdCl::XRootDStatus st = ex.Status();
+    if( ! ( st.IsOK() || ( st.code == XrdCl::errDataError && st.errNo == XrdEc::IOError::ioTooManyErrors ) ) )
+      return 1;
+    else
+    {
+      std::cout << "Too many errors while reading chunks!" << std::endl;
+      return 0;
+    }
+  }
 
   if( bytesrd != size )
   {
@@ -325,6 +342,88 @@ int ReadRandomChunk( XrdEc::DataStore &store, std::default_random_engine &genera
     std::cout << "Read data don't match the original input!" << std::endl;
     return 1;
   }
+
+  std::cout << "Well done!" << std::endl;
+
+  return 0;
+}
+
+bool run_parallel_read( XrdEc::DataStore &store, uint64_t offset, uint64_t size )
+{
+  std::unique_ptr<char[]> buffer( new char[size] );
+  std::fill( buffer.get(), buffer.get() + size, 'A' );
+
+  uint64_t bytesrd = 0;
+  try
+  {
+    bytesrd = store.Read( offset, size, buffer.get() );
+  }
+  catch( const XrdEc::IOError &ex )
+  {
+    XrdCl::XRootDStatus st = ex.Status();
+    if( ! ( st.IsOK() || ( st.code == XrdCl::errDataError && st.errNo == XrdEc::IOError::ioTooManyErrors ) ) )
+      return false;
+    else
+    {
+      std::cout << "Too many errors while reading chunks!" << std::endl;
+      return true;
+    }
+  }
+
+  if( bytesrd != size )
+  {
+    std::cout << "bytes read: " << bytesrd << std::endl;
+    std::cout << "read size: " << size << std::endl;
+    std::cout << "Wrong size of read data!" << std::endl;
+    return false;
+  }
+
+  auto b = input.begin() + offset;
+  auto e = b + size;
+
+  if( !std::equal( b, e, buffer.get() ) )
+  {
+    std::cout << "offset  : " << offset << std::endl;
+    std::cout << "size    : " << size << std::endl;
+    std::cout << "bytesrd : " << bytesrd << std::endl;
+    std::cout << "input size : " << input.size() << std::endl;
+
+//    PrintChunks( offset, size );
+
+    std::cout << std::string( b, e ) << std::endl;
+    std::cout << std::string( b, e ).size() << std::endl;
+    std::cout << std::string( buffer.get(), bytesrd ) << std::endl;
+    std::cout << std::string( buffer.get(), bytesrd ).size() << std::endl;
+
+    std::cout << "Read data don't match the original input!" << std::endl;
+    return false;
+  }
+
+  return true;
+}
+
+int ParallelRandomRead( XrdEc::DataStore &store, std::default_random_engine &generator )
+{
+  std::cout << __func__ << " : ";
+
+  std::uniform_int_distribution<int> nbdistr( 2, 8 );
+  uint8_t nbThreads = nbdistr( generator );
+  std::vector<std::future<bool>> ftrs;
+
+  for( uint8_t i = 0; i < nbThreads; ++i )
+  {
+    std::uniform_int_distribution<int> offdistr( 0, input.size() - 1 );
+    uint64_t offset = offdistr( generator );
+    std::uniform_int_distribution<int> sizedistr( 1, input.size() - offset );
+    uint64_t size = sizedistr( generator );
+    ftrs.emplace_back( std::async( &run_parallel_read, std::ref( store ), offset, size ) );
+  }
+
+  bool OK = true;
+  for( uint8_t i = 0; i < nbThreads; ++i )
+    OK = ( OK && ftrs[i].get() );
+
+  if( !OK ) return 1;
 
   std::cout << "Well done!" << std::endl;
 
@@ -630,9 +729,9 @@ int RandomizedTests( time_t seed )
   std::cout << __func__ << ": seed = " << seed << std::endl;
   std::default_random_engine generator( seed );
 
-  std::uniform_int_distribution<int> funcid( 0, 5 );
+  std::uniform_int_distribution<int> funcid( 0, 6 );
   typedef int (*randfunc)( XrdEc::DataStore&, std::default_random_engine& );
-  randfunc functions[] = { ReadRandomChunk, AppendRandomChunk, OverwriteRandomChunk, RandomShrink, RandomSparseWrite, RandomGrow };
+  randfunc functions[] = { ReadRandomChunk, AppendRandomChunk, OverwriteRandomChunk, RandomShrink, RandomSparseWrite, RandomGrow, ParallelRandomRead };
 
   for( int i = 0; i < 60; ++i )
   {

@@ -57,7 +57,7 @@ namespace XrdEc
       std::future<XRootDStatus> ftr = std::move( ftrs.back() );
       ftrs.pop_back();
       XRootDStatus st = ftr.get();
-      if( st.IsOK() || st.code == errNotFound ) continue;
+      if( st.IsOK() || ( st.code == errErrorResponse && st.errNo == kXR_NotFound ) ) continue;
       // TODO in the future we should probably just log this and ignore all
       // errors
       // important thing is metadata gets updated and this chunk is no longer
