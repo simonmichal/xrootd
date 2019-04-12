@@ -118,6 +118,83 @@ using namespace XrdCl;
 
 int runnb = 0;
 
+int QDBSetup()
+{
+  std::cout << __func__ << " : " << std::endl;
+
+  static const std::string key = "xrdec.locations";
+
+  using namespace qclient;
+  QClient cl{ "quarkdb-test", 7777, {} };
+
+  std::vector<std::string> locations;
+  locations.push_back( "file://localhost/data/dir0" );
+  locations.push_back( "file://localhost/data/dir1" );
+  locations.push_back( "file://localhost/data/dir2" );
+  locations.push_back( "file://localhost/data/dir3" );
+  locations.push_back( "file://localhost/data/dir4" );
+  locations.push_back( "file://localhost/data/dir5" );
+  locations.push_back( "file://localhost/data/dir6" );
+  locations.push_back( "file://localhost/data/dir7" );
+  locations.push_back( "file://localhost/data/dir8" );
+  locations.push_back( "file://localhost/data/dir9" );
+  locations.push_back( "file://localhost/data/dir10" );
+  locations.push_back( "file://localhost/data/dir11" );
+  locations.push_back( "file://localhost/data/dir12" );
+  locations.push_back( "file://localhost/data/dir13" );
+  locations.push_back( "file://localhost/data/dir14" );
+  locations.push_back( "file://localhost/data/dir15" );
+  locations.push_back( "file://localhost/data/dir16" );
+  locations.push_back( "file://localhost/data/dir17" );
+  locations.push_back( "file://localhost/data/dir18" );
+  locations.push_back( "file://localhost/data/dir19" );
+  locations.push_back( "file://localhost/data/dir20" );
+  locations.push_back( "file://localhost/data/dir21" );
+  locations.push_back( "file://localhost/data/dir22" );
+  locations.push_back( "file://localhost/data/dir23" );
+  locations.push_back( "file://localhost/data/dir24" );
+  locations.push_back( "file://localhost/data/dir25" );
+  locations.push_back( "file://localhost/data/dir26" );
+  locations.push_back( "file://localhost/data/dir27" );
+  locations.push_back( "file://localhost/data/dir28" );
+  locations.push_back( "file://localhost/data/dir29" );
+
+
+  std::string strlocations;
+  for( auto &location : locations )
+  {
+    strlocations += location + '\n';
+  }
+
+  cl.exec( "del", key );
+  cl.exec( "del", "xrdec.pl.dupa/jas" );
+  cl.exec( "del", "xrdec.plgr.dupa/jas" );
+
+  redisReplyPtr reply = cl.exec( "set", key, strlocations ).get();
+
+  if( reply == nullptr )
+  {
+    std::cout << "reply == nullptr" << std::endl;
+    return 1;
+  }
+
+  if(reply->type != REDIS_REPLY_STATUS )
+  {
+    std::cout << "type != REDIS_REPLY_STATUS" << std::endl;
+    return 1;
+  }
+
+  if( reply->len <= 0 )
+  {
+    std::cout << "len <= 0" << std::endl;
+    return 1;
+  }
+
+  std::cout << reply->str << std::endl;
+
+  return 0;
+}
+
 void Cleanup()
 {
   system("rm -rf /data/*");
@@ -722,6 +799,8 @@ int RandomizedTests( time_t seed )
 
   Cleanup();
 
+  QDBSetup();
+
   XrdEc::DataStore store( "dupa/jas" );
 
   store.Write( 0, input.size(), input.c_str() );
@@ -736,8 +815,6 @@ int RandomizedTests( time_t seed )
   for( int i = 0; i < 60; ++i )
   {
     std::cout << i << ": ";
-
-//    if( i == 49 && runnb == 2 ) break;
 
     int ret = functions[funcid( generator )]( store, generator );
     if( ret )
@@ -757,49 +834,6 @@ int RandomizedTests( time_t seed )
 int main( int argc, char** argv )
 {
   std::cout << "There we go!" << std::endl;
-
-//  {
-//    using namespace qclient;
-//    QClient cl{ "quarkdb-test", 7777, {} };
-//    redisReplyPtr reply = cl.exec("PING", "hello there").get();
-//
-//    if( reply == nullptr )
-//    {
-//      std::cout << "reply == nullptr" << std::endl;
-//      return 1;
-//    }
-//
-//    if(reply->type != REDIS_REPLY_STRING )
-//    {
-//      std::cout << "type != REDIS_REPLY_STRING" << std::endl;
-//      return 1;
-//    }
-//
-//    if( reply->len <= 0 )
-//    {
-//      std::cout << "len <= 0" << std::endl;
-//      return 1;
-//    }
-//
-//    std::cout << reply->str << std::endl;
-//  }
-//
-//  std::cout << "Done with qclient." << std::endl;
-//  return 0; // for now
-
-//  std::cout << "Simple tests:" << std::endl;
-//
-//  if( ReadTest() ) return 1;
-//
-//  if( ReadPastTheEndOFFileTest() ) return 1;
-//
-//  if( ReadChunk() ) return 1;
-//
-//  if( AppendChunk() ) return 1;
-//
-//  if( OverwriteChunk() ) return 1;
-//
-//  std::cout << std::endl << "Nested tests:" << std::endl;
 
   int rc = 0;
   try

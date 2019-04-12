@@ -14,6 +14,10 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
+#include <sstream>
+
+#include "qclient/QSet.hh"
+#include "qclient/AsyncHandler.hh"
 
 namespace XrdEc
 {
@@ -34,45 +38,46 @@ namespace XrdEc
 
       placement_group GetPlacementGroup( const std::string &path )
       {
-        auto itr = pltables.find( path );
-        if( itr == pltables.end() )
+        placement_group plgr = QDBGetPlGr( path );
+        if( plgr.empty() )
         {
+          std::vector<std::string> locations( QDBGetLocations() );
           // create new placement
-          static std::uniform_int_distribution<uint32_t>  distribution( 0, hosts.size() - 1 );
+          static std::uniform_int_distribution<uint32_t>  distribution( 0, locations.size() - 1 );
           static std::hash<std::string> strhash;
           std::default_random_engine generator( strhash( path ) );
 
-          placement_group plgr;
-          std::string host;
+          std::string location;
           do
           {
-            host = hosts[distribution( generator ) ];
-            if( !std::count( plgr.begin(), plgr.end(), host) )
-              plgr.push_back( host );
+            location = locations[distribution( generator ) ];
+            if( !std::count( plgr.begin(), plgr.end(), location) )
+              plgr.push_back( location );
           }
           while( plgr.size() != plgrsize );
 
-          pltables[path] = std::move( plgr );
-          return pltables[path];
+          // persist in QuarkDB
+          QDBSetPlGr( path, plgr );
         }
 
-        return itr->second;
+        return std::move( plgr );
       }
 
       std::tuple<std::vector<uint64_t>, std::vector<placement_t>> GetPlacement( const std::string &path, const placement_group &plgr )
       {
-        auto itr = placements.find( path );
-        if( itr == placements.end() )
+        std::string placement = QDBGetPlacement( path );
+
+        if( placement.empty() )
           return std::tuple<std::vector<uint64_t>, std::vector<placement_t>>();
 
         Config &cfg = Config::Instance();
         const size_t entrysize = sizeof( uint64_t ) + cfg.nbchunks;
-        size_t nbblk = itr->second.size() / entrysize;
+        size_t nbblk = placement.size() / entrysize;
 
         std::vector<uint64_t> vers; vers.reserve( nbblk );
         std::vector<placement_t> pls; pls.reserve( nbblk );
 
-        const char* raw = itr->second.c_str();
+        const char* raw = placement.c_str();
         for( size_t i = 0; i < nbblk; ++i )
         {
           uint64_t version = *reinterpret_cast<const uint64_t*>( raw );
@@ -113,7 +118,7 @@ namespace XrdEc
           }
         }
 
-        placements[path] = std::move( serialized );
+        QDBSetPlacement( path, serialized );
       }
 
 //      void Set( const std::string &path, std::vector<uint64_t> &version, const std::vector<placement_t> &placement )
@@ -128,39 +133,133 @@ namespace XrdEc
 
     private:
 
-      MetadataProvider() : plgrsize( 10 )
+      std::vector<std::string> QDBGetLocations()
       {
-        // hard coded for testing !!!
-        hosts.push_back( "file://localhost/data/dir0" );
-        hosts.push_back( "file://localhost/data/dir1" );
-        hosts.push_back( "file://localhost/data/dir2" );
-        hosts.push_back( "file://localhost/data/dir3" );
-        hosts.push_back( "file://localhost/data/dir4" );
-        hosts.push_back( "file://localhost/data/dir5" );
-        hosts.push_back( "file://localhost/data/dir6" );
-        hosts.push_back( "file://localhost/data/dir7" );
-        hosts.push_back( "file://localhost/data/dir8" );
-        hosts.push_back( "file://localhost/data/dir9" );
-        hosts.push_back( "file://localhost/data/dir10" );
-        hosts.push_back( "file://localhost/data/dir11" );
-        hosts.push_back( "file://localhost/data/dir12" );
-        hosts.push_back( "file://localhost/data/dir13" );
-        hosts.push_back( "file://localhost/data/dir14" );
-        hosts.push_back( "file://localhost/data/dir15" );
-        hosts.push_back( "file://localhost/data/dir16" );
-        hosts.push_back( "file://localhost/data/dir17" );
-        hosts.push_back( "file://localhost/data/dir18" );
-        hosts.push_back( "file://localhost/data/dir19" );
-        hosts.push_back( "file://localhost/data/dir20" );
-        hosts.push_back( "file://localhost/data/dir21" );
-        hosts.push_back( "file://localhost/data/dir22" );
-        hosts.push_back( "file://localhost/data/dir23" );
-        hosts.push_back( "file://localhost/data/dir24" );
-        hosts.push_back( "file://localhost/data/dir25" );
-        hosts.push_back( "file://localhost/data/dir26" );
-        hosts.push_back( "file://localhost/data/dir27" );
-        hosts.push_back( "file://localhost/data/dir28" );
-        hosts.push_back( "file://localhost/data/dir29" );
+        static const std::string key = "xrdec.locations";
+
+        qclient::redisReplyPtr reply = qcl.exec( "get", key ).get();
+
+        if( reply == nullptr )
+          throw std::exception(); // TODO
+
+        if(reply->type != REDIS_REPLY_STRING )
+          throw std::exception(); // TODO
+
+        if( reply->len <= 0 )
+          throw std::exception(); // TODO
+
+        std::istringstream iss( reply->str );
+        std::vector<std::string> ret;
+        std::string location;
+
+        while( std::getline( iss, location, '\n' ) )
+          ret.push_back( location );
+
+        return std::move( ret );
+      }
+
+      placement_group QDBGetPlGr( const std::string &path )
+      {
+        static const std::string prefix = "xrdec.plgr.";
+
+        qclient::redisReplyPtr reply = qcl.exec( "get", prefix + path ).get();
+
+        if( reply == nullptr )
+          throw std::exception(); // TODO
+
+        if( reply->type == REDIS_REPLY_NIL )
+          return placement_group();
+
+        if(reply->type != REDIS_REPLY_STRING )
+          throw std::exception(); // TODO
+
+        if( reply->len < 0 )
+          throw std::exception(); // TODO
+
+        if( reply->len == 0 )
+          return placement_group();
+
+        std::istringstream iss( reply->str );
+        placement_group ret;
+        std::string location;
+
+        while( std::getline( iss, location, '\n' ) )
+          ret.push_back( location );
+
+        return std::move( ret );
+      }
+
+      void QDBSetPlGr( const std::string &path, const placement_group &plgr )
+      {
+        static const std::string prefix = "xrdec.plgr.";
+
+        std::string strplgr;
+        for( auto &location : plgr )
+        {
+          strplgr += location + '\n';
+        }
+
+        qclient::redisReplyPtr reply = qcl.exec( "set", prefix + path, strplgr ).get();
+
+        if( reply == nullptr )
+          throw std::exception(); // TODO
+
+        if(reply->type != REDIS_REPLY_STATUS )
+          throw std::exception(); // TODO
+
+        if( reply->len <= 0 )
+          throw std::exception(); // TODO
+
+        if( strcmp( "OK", reply->str ) != 0 )
+          throw std::exception(); // TODO
+      }
+
+      std::string QDBGetPlacement( const std::string &path )
+      {
+        static const std::string prefix = "xrdec.pl.";
+
+        qclient::redisReplyPtr reply = qcl.exec( "get", prefix + path ).get();
+
+        if( reply == nullptr )
+          throw std::exception(); // TODO
+
+        if( reply->type == REDIS_REPLY_NIL )
+          return std::string();
+
+        if(reply->type != REDIS_REPLY_STRING )
+          throw std::exception(); // TODO
+
+        if( reply->len < 0 )
+          throw std::exception(); // TODO
+
+        if( reply->len == 0 )
+          return std::string();
+
+        return reply->str;
+      }
+
+      void QDBSetPlacement(const std::string &path, const std::string &placement )
+      {
+        static const std::string prefix = "xrdec.pl.";
+
+        qclient::redisReplyPtr reply = qcl.exec( "set", prefix + path, placement ).get();
+
+        if( reply == nullptr )
+          throw std::exception(); // TODO
+
+        if(reply->type != REDIS_REPLY_STATUS )
+          throw std::exception(); // TODO
+
+        if( reply->len <= 0 )
+          throw std::exception(); // TODO
+
+        if( strcmp( "OK", reply->str ) != 0 )
+          throw std::exception(); // TODO
+      }
+
+
+      MetadataProvider() : plgrsize( 10 ), qcl{ "quarkdb-test", 7777, {} } // we should load this from a config file TODO
+      {
       }
 
       MetadataProvider( const MetadataProvider& ) = delete;
@@ -179,18 +278,14 @@ namespace XrdEc
         throw std::exception(); // TODO
       }
 
-//      std::unordered_map<std::string, std::tuple<std::vector<uint64_t>, std::vector<placement_t>>> inmemory;
-
-      std::vector<std::string> hosts;
-
       size_t plgrsize;
 
-      std::unordered_map<std::string, placement_group> pltables;
-
-      std::unordered_map<std::string, std::string> placements; // <path, serialized placement>
+//      std::unordered_map<std::string, std::string> placements; // <path, serialized placement>
                                                                // serialization format:
                                                                //   1. placememnt entry: 8bytes (version, uint64_t) + 1bytes x nbchunks
                                                                //   2. no delimiter between entries
+
+      qclient::QClient qcl;
 
   };
 
