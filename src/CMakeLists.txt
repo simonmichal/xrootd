@@ -13,8 +13,6 @@ include( XrdSec )
 include( XrdXml )
 include( XrdHeaders )
 
-add_subdirectory( XrdTls )
-
 if( BUILD_CRYPTO )
   include( XrdSecgsi )
 endif()
