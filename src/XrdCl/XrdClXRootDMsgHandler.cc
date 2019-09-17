@@ -2634,57 +2634,5 @@ namespace XrdCl
 
     return status;
   }
-  
-  // Read data from buffer
-  //------------------------------------------------------------------------
-  template<typename T>
-  Status XRootDMsgHandler::ReadFromBuffer( char *&buffer, size_t &buflen, T& result )
-  {
-    if( sizeof( T ) > buflen ) return Status( stError, errDataError );
-
-    result = *reinterpret_cast<T*>( buffer );
-
-    buffer += sizeof( T );
-    buflen   -= sizeof( T );
-
-    return Status();
-  }
-
-  //------------------------------------------------------------------------
-  // Read a string from buffer
-  //------------------------------------------------------------------------
-  Status XRootDMsgHandler::ReadFromBuffer( char *&buffer, size_t &buflen, std::string &result )
-  {
-    Status status;
-    char c = 0;
-
-    while( true )
-    {
-      if( !( status = ReadFromBuffer( buffer, buflen, c ) ).IsOK() )
-        return status;
-
-      if( c == 0 ) break;
-      result += c;
-    }
-
-    return status;
-  }
-
-  //------------------------------------------------------------------------
-  // Read a string from buffer
-  //------------------------------------------------------------------------
-  Status XRootDMsgHandler::ReadFromBuffer( char *&buffer, size_t &buflen,
-                                           size_t size, std::string &result )
-  {
-    Status status;
-
-    if( size > buflen ) return Status( stError, errDataError );
-
-    result.append( buffer, size );
-    buffer += size;
-    buflen -= size;
-
-    return status;
-  }
 
 }

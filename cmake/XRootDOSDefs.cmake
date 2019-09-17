@@ -22,7 +22,7 @@ add_definitions( -DUSE_LIBC_SEMAPHORE=${USE_LIBC_SEMAPHORE} )
 # GCC
 #-------------------------------------------------------------------------------
 if( CMAKE_COMPILER_IS_GNUCXX )
-  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x" )
+  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14" )
   set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra" )
   #-----------------------------------------------------------------------------
   # Set -Werror only for Debug (or undefined) build type or if we have been
@@ -78,7 +78,7 @@ endif()
 #-------------------------------------------------------------------------------
 # Linux
 #-------------------------------------------------------------------------------
-#if( ${CMAKE_SYSTEM_NAME} STREQUAL "Linux" )
+if( "${CMAKE_SYSTEM_NAME}" STREQUAL "Linux" )
   set( Linux TRUE )
   include( GNUInstallDirs )
   add_definitions( -D__linux__=1 )
