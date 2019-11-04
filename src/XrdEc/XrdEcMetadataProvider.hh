@@ -36,32 +36,32 @@ namespace XrdEc
 
       }
 
-      placement_group GetPlacementGroup( const std::string &path )
-      {
-        placement_group plgr = QDBGetPlGr( path );
-        if( plgr.empty() )
-        {
-          std::vector<std::string> locations( QDBGetLocations() );
-          // create new placement
-          static std::uniform_int_distribution<uint32_t>  distribution( 0, locations.size() - 1 );
-          static std::hash<std::string> strhash;
-          std::default_random_engine generator( strhash( path ) );
-
-          std::string location;
-          do
-          {
-            location = locations[distribution( generator ) ];
-            if( !std::count( plgr.begin(), plgr.end(), location) )
-              plgr.push_back( location );
-          }
-          while( plgr.size() != plgrsize );
-
-          // persist in QuarkDB
-          QDBSetPlGr( path, plgr );
-        }
-
-        return std::move( plgr );
-      }
+//      placement_group GetPlacementGroup( const std::string &path )
+//      {
+//        placement_group plgr = QDBGetPlGr( path );
+//        if( plgr.empty() )
+//        {
+//          std::vector<std::string> locations( QDBGetLocations() );
+//          // create new placement
+//          static std::uniform_int_distribution<uint32_t>  distribution( 0, locations.size() - 1 );
+//          static std::hash<std::string> strhash;
+//          std::default_random_engine generator( strhash( path ) );
+//
+//          std::string location;
+//          do
+//          {
+//            location = locations[distribution( generator ) ];
+//            if( !std::count( plgr.begin(), plgr.end(), location) )
+//              plgr.push_back( location );
+//          }
+//          while( plgr.size() != plgrsize );
+//
+//          // persist in QuarkDB
+//          QDBSetPlGr( path, plgr );
+//        }
+//
+//        return std::move( plgr );
+//      }
 
       std::tuple<std::vector<uint64_t>, std::vector<placement_t>> GetPlacement( const std::string &path, const placement_group &plgr )
       {
@@ -158,36 +158,36 @@ namespace XrdEc
         return std::move( ret );
       }
 
-      placement_group QDBGetPlGr( const std::string &path )
-      {
-        static const std::string prefix = "xrdec.plgr.";
-
-        qclient::redisReplyPtr reply = qcl.exec( "get", prefix + path ).get();
-
-        if( reply == nullptr )
-          throw std::exception(); // TODO
-
-        if( reply->type == REDIS_REPLY_NIL )
-          return placement_group();
-
-        if(reply->type != REDIS_REPLY_STRING )
-          throw std::exception(); // TODO
-
-        if( reply->len < 0 )
-          throw std::exception(); // TODO
-
-        if( reply->len == 0 )
-          return placement_group();
-
-        std::istringstream iss( reply->str );
-        placement_group ret;
-        std::string location;
-
-        while( std::getline( iss, location, '\n' ) )
-          ret.push_back( location );
-
-        return std::move( ret );
-      }
+//      placement_group QDBGetPlGr( const std::string &path )
+//      {
+//        static const std::string prefix = "xrdec.plgr.";
+//
+//        qclient::redisReplyPtr reply = qcl.exec( "get", prefix + path ).get();
+//
+//        if( reply == nullptr )
+//          throw std::exception(); // TODO
+//
+//        if( reply->type == REDIS_REPLY_NIL )
+//          return placement_group();
+//
+//        if(reply->type != REDIS_REPLY_STRING )
+//          throw std::exception(); // TODO
+//
+//        if( reply->len < 0 )
+//          throw std::exception(); // TODO
+//
+//        if( reply->len == 0 )
+//          return placement_group();
+//
+//        std::istringstream iss( reply->str );
+//        placement_group ret;
+//        std::string location;
+//
+//        while( std::getline( iss, location, '\n' ) )
+//          ret.push_back( location );
+//
+//        return std::move( ret );
+//      }
 
       void QDBSetPlGr( const std::string &path, const placement_group &plgr )
       {

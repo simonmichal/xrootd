@@ -21,21 +21,13 @@ namespace XrdEc
   //----------------------------------------------------------------------------
   void BlockIO::Get( Block &block )
   {
-    // if the block does not exist on disk
-    // yet there is nothing to do
-    if( block.placement.empty() ) return;
-
-    // we will need configuration details
-    Config  &cfg = Config::Instance();
-
-    // make sure we have placement for all chunks
-    if( block.placement.size() != cfg.nbchunks )
-      throw IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errConfig ) );
-
-    BlockReader reader( block.path, block.blkid, block.placement, block.version, false );
-    std::future<uint64_t> ftr;
-    reader.Read( 0, cfg.datasize, block.buffer.data(), ftr );
-    if( ftr.valid() ) block.cursor = ftr.get();
+//    // we will need configuration details
+//    Config  &cfg = Config::Instance();
+//
+//    BlockReader reader( block.objname, block.blkid, block.placement, block.version, false );
+//    std::future<uint64_t> ftr;
+//    reader.Read( 0, cfg.datasize, block.buffer.data(), ftr );
+//    if( ftr.valid() ) block.cursor = ftr.get();
   }
 
   //----------------------------------------------------------------------------
@@ -88,36 +80,38 @@ namespace XrdEc
   //----------------------------------------------------------------------------
   std::future<XrdCl::XRootDStatus> BlockIO::PlaceChunk( Block &block, uint8_t chunkid, bool relocate )
   {
-    using namespace XrdCl;
+    return std::future<XrdCl::XRootDStatus>();
 
-    OpenFlags::Flags flags = Place( chunkid, block.placement, *block.generator, block.plgr, relocate );
-
-    Config &cfg = Config::Instance();
-
-    uint64_t  blkoff = chunkid * cfg.chunksize;
-    char     *chunk  = block.buffer.data() + blkoff;
-    // Note: if we are dealing with data chunk calculate chunk size based on the
-    // relative offset in the block, if we are dealing with parity chunks use the
-    // size of the first chunk (the biggest one).
-    uint64_t  off    = chunkid >= cfg.nbdata ? 0 : blkoff;
-    uint64_t  chsize = ( block.cursor >= off + cfg.chunksize )
-                     ? cfg.chunksize
-                     : ( block.cursor > off ) ? block.cursor - off : 0;
-
-    std::string url = block.placement[chunkid] + '/' + block.path + Sufix( block.blkid, chunkid );
-    std::string checksum = Checksum( cfg.ckstype, chunk, chsize );
-
-    File *file = new File();
-    Pipeline putchunk = Open( file, url, flags )
-                      | Parallel( Write( file, 0 , chsize, chunk ),
-                                  SetXAttr( file, "xrdec.checksum", checksum ),
-                                  SetXAttr( file, "xrdec.version", std::to_string( block.version ) ),
-                                  SetXAttr( file, "xrdec.chunkid", std::to_string( chunkid ) ),
-                                  SetXAttr( file, "xrdec.chsize", std::to_string( chsize ) ),
-                                  SetXAttr( file, "xrdec.blksize", std::to_string( block.cursor ) ) )
-                      | Close( file ) >> [file]( XRootDStatus& ){ delete file; };
-
-    return Async( std::move( putchunk ) );
+//    using namespace XrdCl;
+//
+//    OpenFlags::Flags flags = Place( chunkid, block.placement, *block.generator, block.plgr, relocate );
+//
+//    Config &cfg = Config::Instance();
+//
+//    uint64_t  blkoff = chunkid * cfg.chunksize;
+//    char     *chunk  = block.buffer.data() + blkoff;
+//    // Note: if we are dealing with data chunk calculate chunk size based on the
+//    // relative offset in the block, if we are dealing with parity chunks use the
+//    // size of the first chunk (the biggest one).
+//    uint64_t  off    = chunkid >= cfg.nbdata ? 0 : blkoff;
+//    uint64_t  chsize = ( block.cursor >= off + cfg.chunksize )
+//                     ? cfg.chunksize
+//                     : ( block.cursor > off ) ? block.cursor - off : 0;
+//
+//    std::string url = block.placement[chunkid] + '/' + block.path + Sufix( block.blkid, chunkid );
+//    std::string checksum = Checksum( cfg.ckstype, chunk, chsize );
+//
+//    File *file = new File();
+//    Pipeline putchunk = Open( file, url, flags )
+//                      | Parallel( Write( file, 0 , chsize, chunk ),
+//                                  SetXAttr( file, "xrdec.checksum", checksum ),
+//                                  SetXAttr( file, "xrdec.version", std::to_string( block.version ) ),
+//                                  SetXAttr( file, "xrdec.chunkid", std::to_string( chunkid ) ),
+//                                  SetXAttr( file, "xrdec.chsize", std::to_string( chsize ) ),
+//                                  SetXAttr( file, "xrdec.blksize", std::to_string( block.cursor ) ) )
+//                      | Close( file ) >> [file]( XRootDStatus& ){ delete file; };
+//
+//    return Async( std::move( putchunk ) );
   }
 
   //----------------------------------------------------------------------------

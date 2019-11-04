@@ -30,19 +30,19 @@ namespace XrdEc
     uint64_t rdsize = cfg.datasize - offset;
     if( rdsize > size ) rdsize = size;
 
-    // if placement policy for this block is empty it means it
-    // is a sparse file
-    if( placement.empty() )
-    {
-      memset( buffer, 0, rdsize );
-      return rdsize;
-    }
+//    // if placement policy for this block is empty it means it // TODO this is not true anymore
+//    // is a sparse file
+//    if( placement.empty() )
+//    {
+//      memset( buffer, 0, rdsize );
+//      return rdsize;
+//    }
 
     // sanity check
     if( placement.size() != cfg.nbchunks )
       throw IOError( XRootDStatus( stError, errConfig ) );
 
-    rdctx ctx = make_rdctx( path, blkid, placement, version, offset, rdsize, ftr, repair );
+    rdctx ctx = make_rdctx( objname, blkid, placement, offset, rdsize, ftr, repair );
 
     uint64_t bytesrd = 0;
     uint64_t chrdoff  = offset % cfg.chunksize;
@@ -118,7 +118,7 @@ namespace XrdEc
       // Are we suppose to repair? In principle the flag is set to true for reads
       // and to false for writes (a write might require an auxiliary read).
       if( repair )
-        RepairManager::Repair( buffers, blkid, blksize, path, placement, version );
+        RepairManager::Repair( buffers, blkid, blksize, objname, placement );
     }
 
     // clear the chunk buffers so the memory is being copied to user
@@ -179,11 +179,11 @@ namespace XrdEc
     Config &cfg = Config::Instance();
 
     ctx->buffers[chunkid] = buff;
-    std::string url = placement[chunkid] + '/' + path + Sufix( blkid, chunkid );
+    std::string url = placement[chunkid] + '/' + objname;
 
     Fwd<ChunkInfo>   rsprd;
     Fwd<std::string> rspcksum;
-    Fwd<std::string> rspversion;
+    Fwd<std::string> filesize;
     Fwd<std::string> rspchid;
     Fwd<std::string> rspchsize;
     Fwd<std::string> rspblksize;
@@ -192,15 +192,14 @@ namespace XrdEc
     Pipeline pipe = Open( file, url, OpenFlags::Read )
                   | Parallel( XrdCl::Read( file, 0, cfg.chunksize, buff->Get() ) >> [rsprd]( XRootDStatus &st, ChunkInfo &chunk ){ if( st.IsOK() ) rsprd = chunk; }, // we always read the full chunk so we can compare the checksums
                               GetXAttr( file, "xrdec.checksum" ) >> [rspcksum]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) rspcksum   = value; },
-                              GetXAttr( file, "xrdec.version" ) >> [rspversion]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) rspversion = value; },
                               GetXAttr( file, "xrdec.chunkid" ) >> [rspchid]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) rspchid = value; },
+                              GetXAttr( file, "xrdec.filesize" ) >> [filesize]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) filesize = value; },
                               GetXAttr( file, "xrdec.chsize" ) >> [rspchsize]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) rspchsize = value; },
                               GetXAttr( file, "xrdec.blksize" ) >> [rspblksize]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) rspblksize = value; }
                     ) >> [=, &cfg]( XRootDStatus &st ) mutable
                          {
                            if( !st.IsOK() || // check if all the components of the parallel operation were successful
                                *rspchid != std::to_string( chunkid ) || // make sure it is the right chunk
-                               *rspversion != std::to_string( ctx->version ) || // make sure that the version is in line with what we want
                                *rspchsize != std::to_string( rsprd->length ) || // make sure the size of the data we read is correct
                                *rspcksum != Checksum( cfg.ckstype, buff->Get(), rsprd->length ) ) // and finally make sure the checksum is OK
                            {

@@ -48,6 +48,7 @@ namespace XrdEc
     //!   computed if possible.
     //--------------------------------------------------------------------------
     void compute( std::unordered_map<uint8_t, chbuff> &buffers );
+    void compute( stripes_t &stripes );
 
     //--------------------------------------------------------------------------
     //! Constructor.
@@ -81,6 +82,7 @@ namespace XrdEc
     //! @return a string of stripe size describing the error pattern
     //--------------------------------------------------------------------------
     std::string getErrorPattern( std::unordered_map<uint8_t, chbuff> &buffers ) const;
+    std::string getErrorPattern( stripes_t &stripes ) const;
 
     //--------------------------------------------------------------------------
     //! Returns a reference to the coding table for the requested error pattern,
@@ -97,6 +99,7 @@ namespace XrdEc
   private:
 
     static void replication( std::unordered_map<uint8_t, chbuff> &buffers );
+    static void replication( stripes_t &stripes );
 
 
     //! the encoding matrix, required to compute any decode matrix

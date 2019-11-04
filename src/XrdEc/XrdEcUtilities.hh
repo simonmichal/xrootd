@@ -17,12 +17,31 @@
 
 namespace XrdEc
 {
-  //----------------------------------------------------------------------------
-  //! a placement type (list of hosts)
-  //----------------------------------------------------------------------------
-  typedef std::vector<std::string>  placement_t;
+  struct stripe_t
+  {
+      stripe_t( char *buffer, bool valid ) : buffer( buffer ), valid( valid )
+      {
+      }
 
-  typedef std::vector<std::string> placement_group;
+      char *buffer;
+      bool  valid;
+  };
+
+  typedef std::vector<stripe_t> stripes_t;
+
+  enum LocationStatus
+  {
+    rw,
+    ro,
+    drain,
+    off,
+  };
+
+  LocationStatus ToLocationStatus( const std::string &str );
+
+  typedef std::tuple<std::string,  LocationStatus> location_t;
+  typedef std::vector<location_t>  placement_group;
+  typedef std::vector<std::string> placement_t;
 
   //----------------------------------------------------------------------------
   //! a buffer type
@@ -242,6 +261,12 @@ namespace XrdEc
                                  std::default_random_engine  &generator,
                                  const placement_group       &plgr,
                                  bool                         relocate );
+
+  placement_t GeneratePlacement( const std::string     &objname,
+                                 const placement_group &plgr,
+                                 bool                   write     );
+
+  placement_t GetSpares( const placement_group &plgr, const placement_t &placement, bool write );
 
 }
 

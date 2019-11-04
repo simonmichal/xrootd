@@ -56,7 +56,7 @@ namespace XrdEc
 
     public:
 
-      static void Repair( std::unordered_map<uint8_t, chbuff> &buffers, uint64_t blkid, uint64_t blksize, const std::string &path, const placement_t &placement, uint64_t version )
+      static void Repair( std::unordered_map<uint8_t, chbuff> &buffers, uint64_t blkid, uint64_t blksize, const std::string &objname, const placement_t &placement )
       {
         RepairManager &mgr = Instance();
         // lock the repair manager
@@ -77,7 +77,7 @@ namespace XrdEc
           if( buffers[chunkid]->IsValid() ) continue;
 
           std::shared_ptr<File> file = std::make_shared<File>();
-          std::string url = placement[chunkid] + '/' + path + Sufix( blkid, chunkid );
+          std::string url = placement[chunkid] + '/' + objname;
           uint64_t  blkoff = chunkid * cfg.chunksize;
           chbuff    chunk   = make_chbuff();
           memcpy( chunk->Get(), buffers[chunkid]->Get(), cfg.chunksize );
@@ -93,10 +93,9 @@ namespace XrdEc
           Pipeline repair = Open( *file, url, OpenFlags::Delete | OpenFlags::Write )
                           | Parallel( Write( *file, 0, chsize, chunk->Get() ) >> [chunk]( XRootDStatus& ){ },
                                       SetXAttr( *file, "xrdec.checksum", checksum ),
-                                      SetXAttr( *file, "xrdec.version", std::to_string( version ) ),
                                       SetXAttr( *file, "xrdec.chunkid", std::to_string( chunkid ) ),
                                       SetXAttr( *file, "xrdec.chsize", std::to_string( chsize ) ),
-                                      SetXAttr( *file, "xrdec.blksize", std::to_string( blksize ) ) )
+                                      SetXAttr( *file, "xrdec.blksize", std::to_string( blksize ) ) ) // TODO we also need to set the file size
                           | Close( *file ) >> [file, finalize]( XRootDStatus &st ){ };
 
           Async( std::move( repair ) );

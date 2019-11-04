@@ -41,6 +41,8 @@
 #include <arpa/inet.h>
 #include <aio.h>
 
+#include <iostream>
+
 namespace
 {
 

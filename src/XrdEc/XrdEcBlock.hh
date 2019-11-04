@@ -64,9 +64,7 @@ namespace XrdEc
       //------------------------------------------------------------------------
       void Reset( const std::string                &path,
                         uint64_t                    offset,
-                  const placement_group            &plgr,
-                  const std::vector<placement_t>   &placement,
-                  const std::vector<uint64_t>      &version );
+                  const placement_group            &plgr );
 
       //------------------------------------------------------------------------
       //! Move constructor.
@@ -107,24 +105,6 @@ namespace XrdEc
       //------------------------------------------------------------------------
       void Sync();
 
-      //------------------------------------------------------------------------
-      //! Update metadata according to the status of this block
-      //------------------------------------------------------------------------
-      void Update( std::vector<uint64_t> &version, std::vector<placement_t> &placement )
-      {
-        // make sure the version vector is of the right size
-        if( blkid >= version.size() )
-          version.resize( blkid + 1, 0 );
-        // set the version of this block
-        version[blkid] = this->version;
-
-        // make sure the placement vector is of the right size
-        if( blkid >= placement.size() )
-          placement.resize( blkid + 1, placement_t() );
-        // set the placement policy of this block
-        placement[blkid] = this->placement;
-      }
-
     private:
 
       //------------------------------------------------------------------------
@@ -137,22 +117,12 @@ namespace XrdEc
       //------------------------------------------------------------------------
       //! path of the file to whom the block of data belongs to
       //------------------------------------------------------------------------
-      std::string  path;
+      std::string  objname;
 
       //------------------------------------------------------------------------
       //! Placement table for the current file
       //------------------------------------------------------------------------
       placement_group  plgr;
-
-      //------------------------------------------------------------------------
-      //! placement policy (list of host) for this block
-      //------------------------------------------------------------------------
-      placement_t  placement;
-
-      //------------------------------------------------------------------------
-      //! version of this block
-      //------------------------------------------------------------------------
-      uint64_t  version;
 
       //------------------------------------------------------------------------
       //! buffer for caching writes
@@ -180,16 +150,6 @@ namespace XrdEc
       //! false otherwise
       //------------------------------------------------------------------------
       bool  updated;
-
-      //------------------------------------------------------------------------
-      //! Random number generator (for the placement policy)
-      //------------------------------------------------------------------------
-      std::unique_ptr<std::default_random_engine>  generator;
-
-      //------------------------------------------------------------------------
-      //! Hash function - for seeding the random number generator
-      //------------------------------------------------------------------------
-      static std::hash<std::string>  strhash;
 
       //------------------------------------------------------------------------
       //! Block I/O

@@ -176,6 +176,17 @@ std::string RedundancyProvider::getErrorPattern( std::unordered_map<uint8_t, chb
   return pattern;
 }
 
+std::string RedundancyProvider::getErrorPattern( stripes_t &stripes ) const
+{
+  Config &cfg = Config::Instance();
+  std::string pattern( cfg.nbchunks, 0 );
+
+  for( uint8_t i = 0; i < cfg.nbchunks; ++i )
+    if( !stripes[i].valid ) pattern[i] = '\1';
+
+  return pattern;
+}
+
 
 RedundancyProvider::CodingTable& RedundancyProvider::getCodingTable( const std::string& pattern )
 {
@@ -239,6 +250,28 @@ void RedundancyProvider::replication( std::unordered_map<uint8_t, chbuff> &buffe
   }
 }
 
+void RedundancyProvider::replication( stripes_t &stripes )
+{
+  Config &cfg = Config::Instance();
+
+  // get index of a valid block
+  void *healthy = nullptr;
+  for( auto itr = stripes.begin(); itr != stripes.end(); ++itr )
+  {
+    if( itr->valid )
+      healthy = itr->buffer;
+  }
+
+  if( !healthy ) throw IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
+
+  // now replicate, by now 'buffers' should contain all chunks
+  for( uint8_t i = 0; i < cfg.nbchunks; ++i )
+  {
+    if( !stripes[i].valid )
+      memcpy( stripes[i].buffer, healthy, cfg.chunksize );
+  }
+}
+
 void RedundancyProvider::compute( std::unordered_map<uint8_t, chbuff> &buffers )
 {
   /* throws if stripe is not recoverable */
@@ -283,6 +316,55 @@ void RedundancyProvider::compute( std::unordered_map<uint8_t, chbuff> &buffers )
     if( pattern[i] )
     {
       memcpy( buffers[i]->Get(), outbuf[e], cfg.chunksize );
+      e++;
+    }
+  }
+}
+
+void RedundancyProvider::compute( stripes_t &stripes )
+{
+  /* throws if stripe is not recoverable */
+  std::string pattern = getErrorPattern( stripes );
+
+  Config &cfg = Config::Instance();
+
+  /* nothing to do if there are no parity blocks. */
+  if ( !cfg.nbparity ) return;
+
+  /* in case of a single data block use replication */
+  if ( cfg.nbdata == 1 )
+    return replication( stripes );
+
+  /* normal operation: erasure coding */
+  CodingTable& dd = getCodingTable(pattern);
+
+  unsigned char* inbuf[cfg.nbdata];
+  for( uint8_t i = 0; i < cfg.nbdata; i++ )
+    inbuf[i] = reinterpret_cast<unsigned char*>( stripes[dd.blockIndices[i]].buffer );
+
+  std::vector<unsigned char> memory( dd.nErrors * cfg.chunksize );
+
+  unsigned char* outbuf[dd.nErrors];
+  for (int i = 0; i < dd.nErrors; i++)
+  {
+    outbuf[i] = &memory[i * cfg.chunksize];
+  }
+
+  ec_encode_data(
+      static_cast<int>( cfg.chunksize ), // Length of each block of data (vector) of source or destination data.
+      static_cast<int>( cfg.nbdata ),     // The number of vector sources in the generator matrix for coding.
+      dd.nErrors,     // The number of output vectors to concurrently encode/decode.
+      dd.table.data(), // Pointer to array of input tables
+      inbuf,          // Array of pointers to source input buffers
+      outbuf          // Array of pointers to coded output buffers
+  );
+
+  int e = 0;
+  for (size_t i = 0; i < cfg.nbchunks; i++)
+  {
+    if( pattern[i] )
+    {
+      memcpy( stripes[i].buffer, outbuf[e], cfg.chunksize );
       e++;
     }
   }

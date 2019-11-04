@@ -22,16 +22,14 @@ namespace XrdEc
       //------------------------------------------------------------------------
       //! Constructor
       //!
-      //! @param path      : path to the file
-      //! @param placement : placement policy for the file
-      //! @param version   : blok versions for the file
+      //! @param objname   : object name
+      //! @param plgr      : placement group for the file
       //------------------------------------------------------------------------
-      StripeReader( const std::string                &path,
-                    const std::vector<placement_t>   &placement,
-                    const std::vector<uint64_t>      &version ) :
-        path( path ), placement( placement ), version( version )
+      StripeReader( const std::string          &objname,
+                    const placement_group      &plgr,
+                    std::default_random_engine &generator ) :
+        objname( objname ), plgr( plgr ), generator( generator )
       {
-
       }
 
       //------------------------------------------------------------------------
@@ -39,7 +37,6 @@ namespace XrdEc
       //------------------------------------------------------------------------
       virtual ~StripeReader()
       {
-
       }
 
       //------------------------------------------------------------------------
@@ -76,7 +73,7 @@ namespace XrdEc
         if( !rsprdsize.valid() ) return 0;
         uint64_t adjustment = rdsize - rsprdsize.get();
 
-        if( blkid != placement.size() - 1 ) return 0;
+        if( blkid != plgr.size() - 1 ) return 0;
 
         return adjustment;
       }
@@ -84,17 +81,14 @@ namespace XrdEc
       //------------------------------------------------------------------------
       //! path of the file to whom the block of data belongs to
       //------------------------------------------------------------------------
-      std::string  path;
+      std::string  objname;
 
       //------------------------------------------------------------------------
       //! placement policy for each block
       //------------------------------------------------------------------------
-      const std::vector<placement_t>  &placement;
+      const placement_group  &plgr;
 
-      //------------------------------------------------------------------------
-      //! version of each block
-      //------------------------------------------------------------------------
-      const std::vector<uint64_t>  &version;
+      std::default_random_engine &generator;
 
       //------------------------------------------------------------------------
       //! List of read responses from particular blocks. A future contains the

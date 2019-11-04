@@ -72,28 +72,32 @@ namespace XrdEc
     uint64_t rdsize = cfg.datasize - blkoff;
     if( rdsize > size ) rdsize = size;
 
+    std::string obj = objname + '.' + std::to_string( blkid );
+
     // check if we are not reading past the end of file
-    if( blkid >= placement.size() ) return 0;
+//    if( blkid >= placement.size() ) return 0; // this does not exist anymore !! TODO
 
     // if placement policy for this block is empty it means it
     // is a sparse file
-    if( placement[blkid].empty() )
-    {
-      memset( buffer, 0, rdsize );
-      return rdsize;
-    }
+//    if( placement[blkid].empty() ) // this does not exist anymore !! TODO
+//    {
+//      memset( buffer, 0, rdsize );
+//      return rdsize;
+//    }
 
-    if( placement[blkid].size() != cfg.nbchunks )
+    placement_t placement = GeneratePlacement( obj, plgr, false );
+
+    if( placement.size() != cfg.nbchunks )
       throw IOError( XRootDStatus( stError, errConfig ) );
 
     // if it is not the last block we are sure it will be fully filled with data
     // so we can zero initialize it, it is important because we might be repairing
     // a sparse file
-    if( blkid < placement.size() - 1 )
+//    if( blkid < placement.size() - 1 ) TODO ?
       memset( buffer, 0, rdsize );
 
     std::future<uint64_t> ftr;
-    BlockReader reader( path, blkid, placement[blkid], version[blkid] );
+    BlockReader reader( obj, blkid, placement );
     uint64_t bytesrd = reader.Read( blkoff, rdsize, buffer, ftr );
     resps.emplace_back( blkid, bytesrd, std::move( ftr ) );
 

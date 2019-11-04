@@ -17,6 +17,15 @@
 
 namespace XrdEc
 {
+  LocationStatus ToLocationStatus( const std::string &str )
+  {
+    if( str == "rw" ) return rw;
+    if( str == "ro" ) return ro;
+    if( str == "drain" ) return drain;
+    if( str == "off" ) return off;
+    throw std::exception(); // TODO
+  }
+
   //------------------------------------------------------------------------
   // Constructor.
   //------------------------------------------------------------------------
@@ -88,14 +97,69 @@ namespace XrdEc
     if( placement.empty() ) placement.resize( cfg.nbchunks, "" );
 
     std::string host;
+    LocationStatus lst;
     do
     {
-      host = plgr[distribution( generator )];
+      auto &tpl = plgr[distribution( generator )];
+      host = std::get<0>( tpl );
+      lst  = std::get<1>( tpl );
     }
-    while( std::count( placement.begin(), placement.end(), host ) );
+    while( std::count( placement.begin(), placement.end(), host ) && lst == rw );
 
     placement[chunkid] = host;
 
     return flags;
+  }
+
+  placement_t GeneratePlacement( const std::string      &objname,
+                                 const placement_group  &plgr,
+                                 bool                    write   )
+  {
+    Config &cfg = Config::Instance();
+
+    static std::hash<std::string>  strhash;
+    std::default_random_engine generator( strhash( objname ) );
+    std::uniform_int_distribution<uint32_t>  distribution( 0, plgr.size() - 1 );
+
+    placement_t placement;
+    size_t      off = 0;
+
+    while( placement.size() < cfg.nbchunks )
+    {
+      // check if the host is available
+      auto &tpl = plgr[distribution( generator )];
+      auto lst = std::get<1>( tpl );
+      if( lst == LocationStatus::off ||
+          ( write && lst != LocationStatus::rw ) )
+      {
+        ++off;
+        if( plgr.size() - off < cfg.nbchunks ) throw std::exception(); // TODO
+        continue;
+      }
+      // check if the host is already in our placement
+      auto &host = std::get<0>( tpl );
+      if( std::count( placement.begin(), placement.end(), host ) ) continue;
+      // add new location
+      placement.push_back( host );
+    }
+
+    return std::move( placement );
+  }
+
+  placement_t GetSpares( const placement_group &plgr, const placement_t &placement, bool write )
+  {
+    placement_t spares;
+    spares.reserve( plgr.size() - placement.size() );
+
+    for( auto &tpl : plgr )
+    {
+      auto &host = std::get<0>( tpl );
+      if( std::count( placement.begin(), placement.end(), host ) ) continue;
+      auto lst = std::get<1>( tpl );
+      if( lst == LocationStatus::off || ( write && lst != LocationStatus::rw ) ) continue;
+      spares.emplace_back( host );
+    }
+
+    return std::move( spares );
   }
 }

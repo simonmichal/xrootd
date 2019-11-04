@@ -16,55 +16,41 @@
 namespace XrdEc
 {
   //----------------------------------------------------------------------------
-  // Initialize the hash function
-  //----------------------------------------------------------------------------
-  std::hash<std::string> Block::strhash;
-
-  //----------------------------------------------------------------------------
   // Constructor.
   //----------------------------------------------------------------------------
-  Block::Block( buffer_t && buffer ) : version( 0 ),
-                                       buffer( std::move( buffer ) ),
+  Block::Block( buffer_t && buffer ) : buffer( std::move( buffer ) ),
                                        errpattern( Config::Instance().nbchunks, false ),
                                        blkid( 0 ),
                                        cursor( 0 ),
-                                       updated( false ),
-                                       generator( new std::default_random_engine( strhash( path ) ) )
+                                       updated( false )
   {
   }
 
   //----------------------------------------------------------------------------
   // Move constructor.
   //----------------------------------------------------------------------------
-  Block::Block( Block && blk ) : path( std::move( blk.path ) ),
-                                 placement( std::move( blk.placement ) ),
-                                 version( blk.version ),
+  Block::Block( Block && blk ) : objname( std::move( blk.objname ) ),
                                  buffer( std::move( blk.buffer ) ),
                                  errpattern( std::move( blk.errpattern ) ),
                                  blkid( blk.blkid ),
                                  cursor( blk.cursor ),
-                                 updated( false ),
-                                 generator( std::move( blk.generator ) )
+                                 updated( false )
   {
   }
 
   //------------------------------------------------------------------------
   // Initialize block
   //------------------------------------------------------------------------
-  void Block::Reset( const std::string                &path,
+  void Block::Reset( const std::string                &objname,
                            uint64_t                    offset,
-                     const placement_group            &plgr,
-                     const std::vector<placement_t>   &placement,
-                     const std::vector<uint64_t>      &version )
+                     const placement_group            &plgr )
   {
     Config &cfg = Config::Instance();
 
     // initialized parameters
-    this->path      = path;
+    this->objname   = objname;
     blkid           = offset / cfg.datasize;
     this->plgr      = plgr;
-    this->placement = blkid < placement.size() ? placement[blkid] : placement_t();
-    this->version   = blkid < version.size()   ? version[blkid]   : 0;
     cursor          = 0;
     updated         = false;
 
@@ -78,12 +64,12 @@ namespace XrdEc
     // clear the buffer
     memset( buffer.data(), 0, Config::Instance().blksize );
 
-    // if placement is not empty load from disk (data + extended attributes)
-    if( !placement.empty() )
-    {
-      // TODO first check if the data are in repair cache, if yes cancel the repair
-      io.Get( *this );
-    }
+//    // if placement is not empty load from disk (data + extended attributes)
+//    if( !placement.empty() ) TODO
+//    {
+//      // TODO first check if the data are in repair cache, if yes cancel the repair
+//      io.Get( *this );
+//    }
   }
 
   //----------------------------------------------------------------------------
@@ -101,15 +87,8 @@ namespace XrdEc
   size_t Block::Write( uint64_t offset, uint64_t size, const char *buff )
   {
     // make sure we are dealing with an initialized object
-    if( path.empty() )
+    if( objname.empty() )
       throw std::logic_error( "XrdEc::Block : cannot write into uninitialized block." ); // TODO
-
-    // since we are modifying the block we have to bump the version
-    if( !updated )
-    {
-      ++version; // bump the version
-      updated = true;
-    }
 
     uint64_t datasize = Config::Instance().datasize;
 
@@ -135,15 +114,12 @@ namespace XrdEc
   void Block::Truncate( uint64_t size )
   {
     // make sure we are dealing with an initialized object
-    if( path.empty() )
+    if( objname.empty() )
       throw std::logic_error( "XrdEc::Block : cannot truncate an uninitialized block." ); // TODO
 
     // since we are modifying the block we have to bump the version
     if( !updated )
-    {
-      ++version; // bump the version
       updated = true;
-    }
 
     Config &cfg = Config::Instance();
     if( size > cfg.blksize ) size = cfg.blksize;
@@ -166,7 +142,7 @@ namespace XrdEc
   void Block::Sync()
   {
     // make sure we are dealing with an initialized object
-    if( path.empty() )
+    if( objname.empty() )
       throw IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errInvalidOp ) );
 
     io.Put( *this );

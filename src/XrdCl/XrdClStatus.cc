@@ -72,6 +72,7 @@ namespace
     { errRedirect,             "Unhandled redirect"   },
     { errErrorResponse,        "Error response"       },
     { errResponseNegative,     "Query response negative" },
+    { errPipelineFailed,       "Pipeline failed" },
     { 0, 0 } };
 
   //----------------------------------------------------------------------------

@@ -41,12 +41,11 @@ namespace XrdEc
       //! @param placement : placement policy for given block of data
       //! @param version   : version of the given block
       //------------------------------------------------------------------------
-      BlockReader( const std::string  &path,
+      BlockReader( const std::string  &objname,
                          uint64_t      blkid,
                    const placement_t  &placement,
-                         uint64_t      version,
                          bool          repair = true ) :
-        path( path ), blkid( blkid ), placement( placement ), version( version ),
+        objname( objname ), blkid( blkid ), placement( placement ),
         repair( repair )
       {
 
@@ -85,16 +84,15 @@ namespace XrdEc
         //! @param rdsize : block relative size of the read
         //! @param ftr    : the actual amount of bytes read
         //----------------------------------------------------------------------
-        BlkRdCtx( const std::string            &path,
+        BlkRdCtx( const std::string            &objname,
                         uint64_t                blkid,
                   const placement_t            &placement,
-                        uint64_t                version,
                         uint64_t                rdoff,
                         uint64_t                rdsize,
                         std::future<uint64_t>  &ftr,
                         bool                    repair) :
-          path( path ), blkid( blkid ), placement( placement ), version( version ),
-          rdoff( rdoff ), rdsize( rdsize ), blksize( 0 ), invalid( 0 ), repair( repair )
+          objname( objname ), blkid( blkid ), placement( placement ), rdoff( rdoff ),
+          rdsize( rdsize ), blksize( 0 ), invalid( 0 ), repair( repair )
         {
           ftr = prms.get_future();
         }
@@ -117,13 +115,11 @@ namespace XrdEc
         XrdCl::Pipeline ReadChunkPipe( uint8_t chunkid, chbuff &buff, std::shared_ptr<BlkRdCtx> &ctx );
 
         // path of the file to whom the block of data belongs to
-        std::string  path;
+        std::string  objname;
         // block ID
         uint64_t blkid;
         // placement policy for our block
         const placement_t  &placement;
-        // version our block block
-        const uint64_t  version;
         // offset of the read within given block
         uint64_t rdoff;
         // size of the read within given block
@@ -151,11 +147,11 @@ namespace XrdEc
       //! Utility function for creating the BlkRdCtx
       //------------------------------------------------------------------------
       inline rdctx make_rdctx( const std::string &path, uint64_t blkid,
-                               const placement_t &placement, uint64_t version,
+                               const placement_t &placement,
                                uint64_t rdoff, uint64_t rdsize,
                                std::future<uint64_t> &ftr, bool repair )
       {
-        return std::make_shared<BlkRdCtx>( path, blkid, placement, version, rdoff, rdsize, ftr, repair );
+        return std::make_shared<BlkRdCtx>( path, blkid, placement, rdoff, rdsize, ftr, repair );
       }
 
       //------------------------------------------------------------------------
@@ -169,7 +165,7 @@ namespace XrdEc
       //------------------------------------------------------------------------
       //! path of the file to whom the block of data belongs to
       //------------------------------------------------------------------------
-      std::string  path;
+      std::string  objname;
 
       //------------------------------------------------------------------------
       //! block ID
@@ -180,11 +176,6 @@ namespace XrdEc
       //! placement policy for our block
       //------------------------------------------------------------------------
       const placement_t  &placement;
-
-      //------------------------------------------------------------------------
-      //! version our block block
-      //------------------------------------------------------------------------
-      const uint64_t  version;
 
       //------------------------------------------------------------------------
       //! if true blocks will be automatically repaired during read operation

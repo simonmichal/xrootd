@@ -46,19 +46,22 @@ namespace XrdEc
 
       uint8_t repairthreads;
 
+      std::string headnode;
+
     private:
 
-      Config() : blksize( 1024 ),
-                 datasize( 768 ),
-                 paritysize( 256 ),
-                 chunksize( 128 ),
-                 nbdata( 6 ),
-                 nbparity( 2 ),
-                 nbchunks( 8 ),
+      Config() : blksize( 6144 ),
+                 datasize( 4096 ),
+                 paritysize( 2048 ),
+                 chunksize( 512 ),
+                 nbdata( 8 ),
+                 nbparity( 4 ),
+                 nbchunks( 12 ),
                  maxrelocate( 10 ),
-                 redundancy( 6 /*nbdata*/, 2 /*nbparity*/ ),
-                 ckstype( "md5" ),
-                 repairthreads( 4 )
+                 redundancy( 8 /*nbdata*/, 4 /*nbparity*/ ),
+                 ckstype( "crc32" ),
+                 repairthreads( 4 ),
+                 headnode( "eospps.cern.ch" )
       {
 
       }

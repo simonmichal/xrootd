@@ -18,7 +18,7 @@
 #include "XrdEc/XrdEcDataStore.hh"
 #include "XrdEc/XrdEcConfig.hh"
 #include "XrdEc/XrdEcUtilities.hh"
-#include "XrdEc/XrdEcMetadataProvider.hh"
+//#include "XrdEc/XrdEcMetadataProvider.hh"
 #include "XrdEc/XrdEcUtilities.hh"
 
 #include <unistd.h>
@@ -200,658 +200,739 @@ void Cleanup()
   system("rm -rf /data/*");
 }
 
-int ReadTest()
+int ReadTest() // TODO
 {
-  Cleanup();
-
-  XrdEc::DataStore store( "/dupa/jas" );
-
-  store.Write( 0, input.size(), input.c_str() );
-  store.Sync();
-
-  uint64_t size = input.size();
-  std::unique_ptr<char[]> buffer( new char[size] );
-  uint64_t bytesrd = store.Read( 0, size, buffer.get() );
-
-  if( bytesrd != input.size() )
-  {
-    std::cout << "bytes read: " << bytesrd << std::endl;
-    std::cout << "input size: " << input.size() << std::endl;
-    std::cout << "Wrong size of read data!" << std::endl;
-    return 1;
-  }
-
-  if( !std::equal( input.begin(), input.end(), buffer.get() ) )
-  {
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return 1;
-  }
-
-  std::cout << __func__ << ": Well done!" << std::endl;
+//  Cleanup();
+//
+//  XrdEc::DataStore store( "/dupa/jas" );
+//
+//  store.Write( 0, input.size(), input.c_str() );
+//  store.Sync();
+//
+//  uint64_t size = input.size();
+//  std::unique_ptr<char[]> buffer( new char[size] );
+//  uint64_t bytesrd = store.Read( 0, size, buffer.get() );
+//
+//  if( bytesrd != input.size() )
+//  {
+//    std::cout << "bytes read: " << bytesrd << std::endl;
+//    std::cout << "input size: " << input.size() << std::endl;
+//    std::cout << "Wrong size of read data!" << std::endl;
+//    return 1;
+//  }
+//
+//  if( !std::equal( input.begin(), input.end(), buffer.get() ) )
+//  {
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << __func__ << ": Well done!" << std::endl;
 
   return 0;
 }
 
-int ReadPastTheEndOFFileTest()
+int ReadPastTheEndOFFileTest() // TODO
 {
-  Cleanup();
-
-  XrdEc::DataStore store( "/dupa/jas" );
-
-  store.Write( 0, input.size(), input.c_str() );
-  store.Sync();
-
-  uint64_t size = input.size() + 1024;
-  std::unique_ptr<char[]> buffer( new char[size] );
-  uint64_t bytesrd = store.Read( 0, size, buffer.get() );
-
-  if( bytesrd != input.size() )
-  {
-    std::cout << "bytes read: " << bytesrd << std::endl;
-    std::cout << "input size: " << input.size() << std::endl;
-    std::cout << "Wrong size of read data!" << std::endl;
-    return 1;
-  }
-
-  if( !std::equal( input.begin(), input.end(), buffer.get() ) )
-  {
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return 1;
-  }
-
-  std::cout << __func__ << ": Well done!" << std::endl;
+//  Cleanup();
+//
+//  XrdEc::DataStore store( "/dupa/jas" );
+//
+//  store.Write( 0, input.size(), input.c_str() );
+//  store.Sync();
+//
+//  uint64_t size = input.size() + 1024;
+//  std::unique_ptr<char[]> buffer( new char[size] );
+//  uint64_t bytesrd = store.Read( 0, size, buffer.get() );
+//
+//  if( bytesrd != input.size() )
+//  {
+//    std::cout << "bytes read: " << bytesrd << std::endl;
+//    std::cout << "input size: " << input.size() << std::endl;
+//    std::cout << "Wrong size of read data!" << std::endl;
+//    return 1;
+//  }
+//
+//  if( !std::equal( input.begin(), input.end(), buffer.get() ) )
+//  {
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << __func__ << ": Well done!" << std::endl;
 
   return 0;
 }
 
-void CorruptChunk( XrdEc::DataStore &store, uint64_t offset, uint64_t size, std::default_random_engine &generator )
+void CorruptChunk( XrdEc::DataStore &store, uint64_t offset, uint64_t size, std::default_random_engine &generator ) // TODO
 {
-  std::string path = "/dupa/jas";
-
-  XrdEc::Config &cfg = XrdEc::Config::Instance();
-
-  std::vector<uint64_t>    version = store.version;
-  std::vector<XrdEc::placement_t> placement = store.placement;
-
-  // figure out the id of the block of interest
-  uint64_t blkid = offset / cfg.datasize;
-  // figure out the first chunk of interest
-  uint8_t  chunkid = ( offset % cfg.datasize ) / cfg.chunksize;
-
-  XrdEc::placement_t p = placement[blkid];
-
-  if( p.empty() )
-  {
-    std::cout << "Chunk does not exist (sparse file), nothing to corrupt!" << std::endl;
-    return;
-  }
-
-  std::string        pp = p[chunkid];
-  std::string url = pp + '/' + path + XrdEc::Sufix( blkid, chunkid );
-  const std::string prefix = "file://localhost";
-  url = url.substr( prefix.size() );
-  std::cout << __func__ << " : " << url;
-
-  using namespace XrdCl;
-
-  std::uniform_int_distribution<int> typedistr( 0, 2 );
-  int type = typedistr( generator );
-
-  switch( type )
-  {
-    case 0:
-    {
-      std::cout << " (remove), ";
-      // just remove the data chunk
-      system( ("rm -rf " + url ).c_str() );
-      break;
-    }
-
-    case 1:
-    {
-      std::cout << " (corrupt), ";
-      // corrutp the data
-      system( ( "echo dupa > " + url ).c_str() );
-      break;
-    }
-
-    case 2:
-    {
-      std::cout << " (corrupt permanently), ";
-      // corrupt the file and don't allow writes anymore
-      system( ( "echo dupa > " + url ).c_str() );
-      system( ( "chmod 000 " + url ).c_str() );
-      break;
-    }
-
-    default: break;
-  }
+//  std::string path = "/dupa/jas";
+//
+//  XrdEc::Config &cfg = XrdEc::Config::Instance();
+//
+//  std::vector<uint64_t>    version = store.version;  TODO
+//  std::vector<XrdEc::placement_t> placement = store.placement;
+//
+//  // figure out the id of the block of interest
+//  uint64_t blkid = offset / cfg.datasize;
+//  // figure out the first chunk of interest
+//  uint8_t  chunkid = ( offset % cfg.datasize ) / cfg.chunksize;
+//
+//  XrdEc::placement_t p = placement[blkid];
+//
+//  if( p.empty() )
+//  {
+//    std::cout << "Chunk does not exist (sparse file), nothing to corrupt!" << std::endl;
+//    return;
+//  }
+//
+//  std::string        pp = p[chunkid];
+//  std::string url = pp + '/' + path + XrdEc::Sufix( blkid, chunkid );
+//  const std::string prefix = "file://localhost";
+//  url = url.substr( prefix.size() );
+//  std::cout << __func__ << " : " << url;
+//
+//  using namespace XrdCl;
+//
+//  std::uniform_int_distribution<int> typedistr( 0, 2 );
+//  int type = typedistr( generator );
+//
+//  switch( type )
+//  {
+//    case 0:
+//    {
+//      std::cout << " (remove), ";
+//      // just remove the data chunk
+//      system( ("rm -rf " + url ).c_str() );
+//      break;
+//    }
+//
+//    case 1:
+//    {
+//      std::cout << " (corrupt), ";
+//      // corrutp the data
+//      system( ( "echo dupa > " + url ).c_str() );
+//      break;
+//    }
+//
+//    case 2:
+//    {
+//      std::cout << " (corrupt permanently), ";
+//      // corrupt the file and don't allow writes anymore
+//      system( ( "echo dupa > " + url ).c_str() );
+//      system( ( "chmod 000 " + url ).c_str() );
+//      break;
+//    }
+//
+//    default: break;
+//  }
 
 }
 
-void PrintChunks( int64_t offset, int64_t size )
+void PrintChunks( int64_t offset, int64_t size ) // TODO
 {
-  std::string path = "/dupa/jas";
-
-  XrdEc::Config &cfg = XrdEc::Config::Instance();
-
-  while( size > 0 )
-  {
-    uint64_t blkid  = offset  / cfg.datasize;
-    uint64_t blkoff = offset % cfg.datasize;
-    int64_t rdsize = cfg.datasize - blkoff;
-    if( rdsize > size ) rdsize = size;
-
-    uint8_t  chunkid  = blkoff / cfg.chunksize;
-    uint64_t chunkoff = blkoff % cfg.chunksize;
-
-    for( ; chunkid < cfg.nbchunks; ++chunkid )
-    {
-      std::cout << "Chunk : /dupa/jas." << blkid << '.' << (int)chunkid << std::endl;
-      uint64_t chrdsize = cfg.chunksize - chunkoff;
-      size   -= chrdsize;
-      rdsize -= chrdsize;
-      offset += chrdsize;
-
-      if( rdsize <= 0 ) break;
-
-      chunkoff = 0;
-    }
-  }
+//  std::string path = "/dupa/jas";
+//
+//  XrdEc::Config &cfg = XrdEc::Config::Instance();
+//
+//  while( size > 0 )
+//  {
+//    uint64_t blkid  = offset  / cfg.datasize;
+//    uint64_t blkoff = offset % cfg.datasize;
+//    int64_t rdsize = cfg.datasize - blkoff;
+//    if( rdsize > size ) rdsize = size;
+//
+//    uint8_t  chunkid  = blkoff / cfg.chunksize;
+//    uint64_t chunkoff = blkoff % cfg.chunksize;
+//
+//    for( ; chunkid < cfg.nbchunks; ++chunkid )
+//    {
+//      std::cout << "Chunk : /dupa/jas." << blkid << '.' << (int)chunkid << std::endl;
+//      uint64_t chrdsize = cfg.chunksize - chunkoff;
+//      size   -= chrdsize;
+//      rdsize -= chrdsize;
+//      offset += chrdsize;
+//
+//      if( rdsize <= 0 ) break;
+//
+//      chunkoff = 0;
+//    }
+//  }
 }
 
-int ReadRandomChunk( XrdEc::DataStore &store, std::default_random_engine &generator )
+int ReadRandomChunk( XrdEc::DataStore &store, std::default_random_engine &generator ) // TODO
 {
-  std::cout << __func__ << " : ";
-
-  std::uniform_int_distribution<int> offdistr( 0, input.size() - 1 );
-  uint64_t offset = offdistr( generator );
-  std::uniform_int_distribution<int> sizedistr( 1, input.size() - offset );
-  uint64_t size = sizedistr( generator );
-  std::unique_ptr<char[]> buffer( new char[size] );
-  std::fill( buffer.get(), buffer.get() + size, 'A' );
-
-  std::uniform_int_distribution<int> corrdistr( 0, 9 );
-  uint8_t corrutpprob = corrdistr( generator );
-  if( corrutpprob > 6 ) CorruptChunk( store, offset, size, generator );
-  uint64_t bytesrd = 0 ;
-  try
-  {
-    bytesrd = store.Read( offset, size, buffer.get() );
-  }
-  catch( const XrdEc::IOError &ex )
-  {
-    XrdCl::XRootDStatus st = ex.Status();
-    if( ! ( st.IsOK() || ( st.code == XrdCl::errDataError && st.errNo == XrdEc::IOError::ioTooManyErrors ) ) )
-      return 1;
-    else
-    {
-      std::cout << "Too many errors while reading chunks!" << std::endl;
-      return 0;
-    }
-  }
-
-  if( bytesrd != size )
-  {
-    std::cout << "bytes read: " << bytesrd << std::endl;
-    std::cout << "read size: " << size << std::endl;
-    std::cout << "Wrong size of read data!" << std::endl;
-    return 1;
-  }
-
-  auto b = input.begin() + offset;
-  auto e = b + size;
-
-  if( !std::equal( b, e, buffer.get() ) )
-  {
-    std::cout << "offset  : " << offset << std::endl;
-    std::cout << "size    : " << size << std::endl;
-    std::cout << "bytesrd : " << bytesrd << std::endl;
-    std::cout << "input size : " << input.size() << std::endl;
-
-//    PrintChunks( offset, size );
-
-    std::cout << std::string( b, e ) << std::endl;
-    std::cout << std::string( b, e ).size() << std::endl;
-    std::cout << std::string( buffer.get(), bytesrd ) << std::endl;
-    std::cout << std::string( buffer.get(), bytesrd ).size() << std::endl;
-
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return 1;
-  }
-
-  std::cout << "Well done!" << std::endl;
+//  std::cout << __func__ << " : ";
+//
+//  std::uniform_int_distribution<int> offdistr( 0, input.size() - 1 );
+//  uint64_t offset = offdistr( generator );
+//  std::uniform_int_distribution<int> sizedistr( 1, input.size() - offset );
+//  uint64_t size = sizedistr( generator );
+//  std::unique_ptr<char[]> buffer( new char[size] );
+//  std::fill( buffer.get(), buffer.get() + size, 'A' );
+//
+//  std::uniform_int_distribution<int> corrdistr( 0, 9 );
+//  uint8_t corrutpprob = corrdistr( generator );
+//  if( corrutpprob > 6 ) CorruptChunk( store, offset, size, generator );
+//  uint64_t bytesrd = 0 ;
+//  try
+//  {
+//    bytesrd = store.Read( offset, size, buffer.get() );
+//  }
+//  catch( const XrdEc::IOError &ex )
+//  {
+//    XrdCl::XRootDStatus st = ex.Status();
+//    if( ! ( st.IsOK() || ( st.code == XrdCl::errDataError && st.errNo == XrdEc::IOError::ioTooManyErrors ) ) )
+//      return 1;
+//    else
+//    {
+//      std::cout << "Too many errors while reading chunks!" << std::endl;
+//      return 0;
+//    }
+//  }
+//
+//  if( bytesrd != size )
+//  {
+//    std::cout << "bytes read: " << bytesrd << std::endl;
+//    std::cout << "read size: " << size << std::endl;
+//    std::cout << "Wrong size of read data!" << std::endl;
+//    return 1;
+//  }
+//
+//  auto b = input.begin() + offset;
+//  auto e = b + size;
+//
+//  if( !std::equal( b, e, buffer.get() ) )
+//  {
+//    std::cout << "offset  : " << offset << std::endl;
+//    std::cout << "size    : " << size << std::endl;
+//    std::cout << "bytesrd : " << bytesrd << std::endl;
+//    std::cout << "input size : " << input.size() << std::endl;
+//
+////    PrintChunks( offset, size );
+//
+//    std::cout << std::string( b, e ) << std::endl;
+//    std::cout << std::string( b, e ).size() << std::endl;
+//    std::cout << std::string( buffer.get(), bytesrd ) << std::endl;
+//    std::cout << std::string( buffer.get(), bytesrd ).size() << std::endl;
+//
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << "Well done!" << std::endl;
 
   return 0;
 }
 
-bool run_parallel_read( XrdEc::DataStore &store, uint64_t offset, uint64_t size )
+bool run_parallel_read( XrdEc::DataStore &store, uint64_t offset, uint64_t size ) // TODO
 {
-  std::unique_ptr<char[]> buffer( new char[size] );
-  std::fill( buffer.get(), buffer.get() + size, 'A' );
-
-  uint64_t bytesrd = 0;
-  try
-  {
-    bytesrd = store.Read( offset, size, buffer.get() );
-  }
-  catch( const XrdEc::IOError &ex )
-  {
-    XrdCl::XRootDStatus st = ex.Status();
-    if( ! ( st.IsOK() || ( st.code == XrdCl::errDataError && st.errNo == XrdEc::IOError::ioTooManyErrors ) ) )
-      return false;
-    else
-    {
-      std::cout << "Too many errors while reading chunks!" << std::endl;
-      return true;
-    }
-  }
-
-  if( bytesrd != size )
-  {
-    std::cout << "bytes read: " << bytesrd << std::endl;
-    std::cout << "read size: " << size << std::endl;
-    std::cout << "Wrong size of read data!" << std::endl;
-    return false;
-  }
-
-  auto b = input.begin() + offset;
-  auto e = b + size;
-
-  if( !std::equal( b, e, buffer.get() ) )
-  {
-    std::cout << "offset  : " << offset << std::endl;
-    std::cout << "size    : " << size << std::endl;
-    std::cout << "bytesrd : " << bytesrd << std::endl;
-    std::cout << "input size : " << input.size() << std::endl;
-
-//    PrintChunks( offset, size );
-
-    std::cout << std::string( b, e ) << std::endl;
-    std::cout << std::string( b, e ).size() << std::endl;
-    std::cout << std::string( buffer.get(), bytesrd ) << std::endl;
-    std::cout << std::string( buffer.get(), bytesrd ).size() << std::endl;
-
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return false;
-  }
+//  std::unique_ptr<char[]> buffer( new char[size] );
+//  std::fill( buffer.get(), buffer.get() + size, 'A' );
+//
+//  uint64_t bytesrd = 0;
+//  try
+//  {
+//    bytesrd = store.Read( offset, size, buffer.get() );
+//  }
+//  catch( const XrdEc::IOError &ex )
+//  {
+//    XrdCl::XRootDStatus st = ex.Status();
+//    if( ! ( st.IsOK() || ( st.code == XrdCl::errDataError && st.errNo == XrdEc::IOError::ioTooManyErrors ) ) )
+//      return false;
+//    else
+//    {
+//      std::cout << "Too many errors while reading chunks!" << std::endl;
+//      return true;
+//    }
+//  }
+//
+//  if( bytesrd != size )
+//  {
+//    std::cout << "bytes read: " << bytesrd << std::endl;
+//    std::cout << "read size: " << size << std::endl;
+//    std::cout << "Wrong size of read data!" << std::endl;
+//    return false;
+//  }
+//
+//  auto b = input.begin() + offset;
+//  auto e = b + size;
+//
+//  if( !std::equal( b, e, buffer.get() ) )
+//  {
+//    std::cout << "offset  : " << offset << std::endl;
+//    std::cout << "size    : " << size << std::endl;
+//    std::cout << "bytesrd : " << bytesrd << std::endl;
+//    std::cout << "input size : " << input.size() << std::endl;
+//
+////    PrintChunks( offset, size );
+//
+//    std::cout << std::string( b, e ) << std::endl;
+//    std::cout << std::string( b, e ).size() << std::endl;
+//    std::cout << std::string( buffer.get(), bytesrd ) << std::endl;
+//    std::cout << std::string( buffer.get(), bytesrd ).size() << std::endl;
+//
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return false;
+//  }
 
   return true;
 }
 
-int ParallelRandomRead( XrdEc::DataStore &store, std::default_random_engine &generator )
+int ParallelRandomRead( XrdEc::DataStore &store, std::default_random_engine &generator ) // TODO
 {
-  std::cout << __func__ << " : ";
-
-  std::uniform_int_distribution<int> nbdistr( 2, 8 );
-  uint8_t nbThreads = nbdistr( generator );
-  std::vector<std::future<bool>> ftrs;
-
-  for( uint8_t i = 0; i < nbThreads; ++i )
-  {
-    std::uniform_int_distribution<int> offdistr( 0, input.size() - 1 );
-    uint64_t offset = offdistr( generator );
-    std::uniform_int_distribution<int> sizedistr( 1, input.size() - offset );
-    uint64_t size = sizedistr( generator );
-    ftrs.emplace_back( std::async( &run_parallel_read, std::ref( store ), offset, size ) );
-  }
-
-  bool OK = true;
-  for( uint8_t i = 0; i < nbThreads; ++i )
-    OK = ( OK && ftrs[i].get() );
-
-  if( !OK ) return 1;
-
-  std::cout << "Well done!" << std::endl;
+//  std::cout << __func__ << " : ";
+//
+//  std::uniform_int_distribution<int> nbdistr( 2, 8 );
+//  uint8_t nbThreads = nbdistr( generator );
+//  std::vector<std::future<bool>> ftrs;
+//
+//  for( uint8_t i = 0; i < nbThreads; ++i )
+//  {
+//    std::uniform_int_distribution<int> offdistr( 0, input.size() - 1 );
+//    uint64_t offset = offdistr( generator );
+//    std::uniform_int_distribution<int> sizedistr( 1, input.size() - offset );
+//    uint64_t size = sizedistr( generator );
+//    ftrs.emplace_back( std::async( &run_parallel_read, std::ref( store ), offset, size ) );
+//  }
+//
+//  bool OK = true;
+//  for( uint8_t i = 0; i < nbThreads; ++i )
+//    OK = ( OK && ftrs[i].get() );
+//
+//  if( !OK ) return 1;
+//
+//  std::cout << "Well done!" << std::endl;
 
   return 0;
 }
 
-int ReadChunk()
+int ReadChunk() // TODO
 {
-  Cleanup();
-
-  XrdEc::DataStore store( "dupa/jas" );
-
-  store.Write( 0, input.size(), input.c_str() );
-  store.Sync();
-
-  std::default_random_engine generator( time( 0 ) );
-  return ReadRandomChunk( store, generator );
-}
-
-int AppendRandomChunk( XrdEc::DataStore &store, std::default_random_engine &generator )
-{
-  std::cout << __func__ << " : ";
-
-  std::uniform_int_distribution<int> offdistr( 0, input.size() - 1 );
-  uint64_t choff = offdistr( generator );
-  std::uniform_int_distribution<int> sizedistr( 1, input.size() - choff );
-  uint64_t chsize = sizedistr( generator );
-
-  std::string randch = input.substr( choff, chsize );
-
-  store.Write( input.size(), randch.size(), randch.c_str() );
-  store.Sync();
-
-  std::uniform_int_distribution<int> offdiff( input.size() * 0.1, input.size() * 0.2 );
-  uint64_t oldsize = offdiff( generator );
-  uint64_t offset = input.size() - oldsize;
-  uint64_t size   = randch.size() + oldsize;
-  std::unique_ptr<char[]> buffer( new char[size] );
-
-  uint64_t bytesrd = store.Read( offset, size, buffer.get() );
-
-  if( bytesrd != size )
-  {
-    std::cout << "bytes read: " << bytesrd << std::endl;
-    std::cout << "read size: " << size << std::endl;
-    std::cout << "Wrong size of read data!" << std::endl;
-    return 1;
-  }
-
-  input += randch;
-
-  auto b = input.begin() + offset;
-  auto e = b + size;
-
-  if( !std::equal( b, e, buffer.get() ) )
-  {
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return 1;
-  }
-
-  std::cout << "Well done!" << std::endl;
+//  Cleanup();
+//
+//  XrdEc::DataStore store( "dupa/jas" );
+//
+//  store.Write( 0, input.size(), input.c_str() );
+//  store.Sync();
+//
+//  std::default_random_engine generator( time( 0 ) );
+//  return ReadRandomChunk( store, generator );
 
   return 0;
 }
 
-int AppendChunk()
+int AppendRandomChunk( XrdEc::DataStore &store, std::default_random_engine &generator ) // TODO
 {
-  Cleanup();
-
-  XrdEc::DataStore store( "dupa/jas" );
-
-  store.Write( 0, input.size(), input.c_str() );
-  store.Sync();
-
-  std::default_random_engine generator( time( 0 ) );
-  return AppendRandomChunk( store, generator );
-}
-
-int OverwriteRandomChunk( XrdEc::DataStore &store, std::default_random_engine &generator )
-{
-  std::cout << __func__ << " : ";
-
-
-
-  std::uniform_int_distribution<int> choffdistr( 0, input.size() * 0.8 );
-  uint64_t choff = choffdistr( generator );
-  std::uniform_int_distribution<int> chsizedistr( 0.1 * input.size(), 0.2 * input.size() );
-  uint64_t chsize = chsizedistr( generator );
-  std::string randch = input.substr( choff, chsize );
-  std::uniform_int_distribution<int> offdistr( 256, 512 );
-  uint64_t offset = offdistr( generator );
-
-  store.Write( offset, randch.size(), randch.c_str() );
-  store.Sync();
-
-  if( offset + randch.size() > input.size() )
-    input.resize( offset + randch.size() );
-  auto dst = input.begin() + offset;
-  std::copy( randch.begin(), randch.end(), dst );
-
-  uint64_t rdoff  = offset > 512 ? offset - 512 : 0;
-  uint64_t rdsize = 1024 + randch.size();
-  std::unique_ptr<char[]> buffer( new char[rdsize] );
-  std::fill( buffer.get(), buffer.get() + rdsize, '\0' );
-
-  uint64_t bytesrd = store.Read( rdoff, rdsize, buffer.get() );
-
-  auto b = input.begin() + rdoff;
-  auto e = b + bytesrd;
-
-  if( !std::equal( b, e, buffer.get() ) )
-  {
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return 1;
-  }
-
-  std::cout << "Well done!" << std::endl;
+//  std::cout << __func__ << " : ";
+//
+//  std::uniform_int_distribution<int> offdistr( 0, input.size() - 1 );
+//  uint64_t choff = offdistr( generator );
+//  std::uniform_int_distribution<int> sizedistr( 1, input.size() - choff );
+//  uint64_t chsize = sizedistr( generator );
+//
+//  std::string randch = input.substr( choff, chsize );
+//
+//  store.Write( input.size(), randch.size(), randch.c_str() );
+//  store.Sync();
+//
+//  std::uniform_int_distribution<int> offdiff( input.size() * 0.1, input.size() * 0.2 );
+//  uint64_t oldsize = offdiff( generator );
+//  uint64_t offset = input.size() - oldsize;
+//  uint64_t size   = randch.size() + oldsize;
+//  std::unique_ptr<char[]> buffer( new char[size] );
+//
+//  uint64_t bytesrd = store.Read( offset, size, buffer.get() );
+//
+//  if( bytesrd != size )
+//  {
+//    std::cout << "bytes read: " << bytesrd << std::endl;
+//    std::cout << "read size: " << size << std::endl;
+//    std::cout << "Wrong size of read data!" << std::endl;
+//    return 1;
+//  }
+//
+//  input += randch;
+//
+//  auto b = input.begin() + offset;
+//  auto e = b + size;
+//
+//  if( !std::equal( b, e, buffer.get() ) )
+//  {
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << "Well done!" << std::endl;
 
   return 0;
 }
 
-int OverwriteChunk()
+int AppendChunk() // TODO
 {
-  Cleanup();
-
-  XrdEc::DataStore store( "dupa/jas" );
-
-  store.Write( 0, input.size(), input.c_str() );
-  store.Sync();
-
-  std::default_random_engine generator( time( 0 ) );
-  return OverwriteRandomChunk( store, generator );
-}
-
-int RandomShrink( XrdEc::DataStore &store, std::default_random_engine &generator )
-{
-  std::cout << __func__ << " : ";
-
-  std::uniform_int_distribution<uint64_t> sizedistr( input.size() / 2, ( input.size() * 3 ) / 4 );
-  uint64_t size = sizedistr( generator );
-
-  input.resize( size );
-  store.Truncate( size );
-
-  std::uniform_int_distribution<uint64_t> rddistr( input.size() * 0.1, input.size() * 0.2 );
-  uint64_t tmp = rddistr( generator );
-
-  uint64_t rdoff  = input.size() - tmp;
-  uint64_t rdsize = 2 * tmp;
-  std::unique_ptr<char[]> buffer( new char[rdsize] );
-  uint64_t bytesrd = store.Read( rdoff, rdsize, buffer.get() );
-
-  if( bytesrd != tmp )
-  {
-    std::cout << "bytes read after truncating : " << bytesrd << std::endl;
-    std::cout << "expected : " << tmp << std::endl;
-    std::cout << "read offset : " << rdoff << std::endl;
-    std::cout << "file size : " << size << std::endl;
-
-    std::cout << std::endl;
-    std::cout << input.substr( rdoff, bytesrd ) << std::endl;
-    std::cout << std::endl;
-    std::cout << std::string( buffer.get(), bytesrd ) << std::endl << std::endl;
-
-    return 1;
-  }
-
-  auto b = input.begin() + rdoff;
-  auto e = b + tmp;
-
-  if( !std::equal( b, e, buffer.get() ) )
-  {
-    std::cout << std::endl;
-    std::cout << input.substr( rdoff, bytesrd ) << std::endl;
-    std::cout << std::endl;
-    std::cout << std::string( buffer.get(), bytesrd ) << std::endl << std::endl;
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return 1;
-  }
-
-  std::cout << "Well done!" << std::endl;
+//  Cleanup();
+//
+//  XrdEc::DataStore store( "dupa/jas" );
+//
+//  store.Write( 0, input.size(), input.c_str() );
+//  store.Sync();
+//
+//  std::default_random_engine generator( time( 0 ) );
+//  return AppendRandomChunk( store, generator );
 
   return 0;
 }
 
-int RandomSparseWrite( XrdEc::DataStore &store, std::default_random_engine &generator )
+int OverwriteRandomChunk( XrdEc::DataStore &store, std::default_random_engine &generator ) // TODO
 {
-  std::cout << __func__ << " : ";
-
-  XrdEc::Config &cfg = XrdEc::Config::Instance();
-
-  std::uniform_int_distribution<int> offdistr( input.size() + cfg.datasize / 2 , input.size() + cfg.datasize * 3 );
-  uint64_t wrtoff = offdistr( generator );
-  std::uniform_int_distribution<int> sizedistr( 0.1 * input.size(), 0.2 * input.size()  );
-  uint64_t wrtsize = sizedistr( generator );
-  std::uniform_int_distribution<int> choffdistr( 0, input.size() - 1 - wrtsize );
-  uint64_t choff = choffdistr( generator );
-
-
-  std::string randch = input.substr( choff, wrtsize );
-
-  store.Write( wrtoff, wrtsize, randch.c_str() );
-  store.Sync();
-
-  std::uniform_int_distribution<int> offdiff( input.size() * 0.1, input.size() * 0.2 );
-  uint64_t oldsize = offdiff( generator );
-  uint64_t offset = input.size() - oldsize;
-  uint64_t size   = wrtoff - offset + randch.size() - 0.7 * randch.size();
-  std::unique_ptr<char[]> buffer( new char[size] );
-  std::fill( buffer.get(), buffer.get() + size, 'A' );
-
-  uint64_t bytesrd = store.Read( offset, size, buffer.get() );
-
-  if( bytesrd != size )
-  {
-    std::cout << "bytes read: " << bytesrd << std::endl;
-    std::cout << "read size: " << size << std::endl;
-    std::cout << "Wrong size of read data!" << std::endl;
-    return 1;
-  }
-
-  input.resize( wrtoff, 0 );
-  input += randch;
-
-  auto b = input.begin() + offset;
-  auto e = b + size;
-
-  if( !std::equal( b, e, buffer.get() ) )
-  {
-    std::cout << "Read data don't match the original input!" << std::endl;
-    std::cout << "Size : " << e - b << std::endl;
-    return 1;
-  }
-
-  std::cout << "Well done!" << std::endl;
+//  std::cout << __func__ << " : ";
+//
+//
+//
+//  std::uniform_int_distribution<int> choffdistr( 0, input.size() * 0.8 );
+//  uint64_t choff = choffdistr( generator );
+//  std::uniform_int_distribution<int> chsizedistr( 0.1 * input.size(), 0.2 * input.size() );
+//  uint64_t chsize = chsizedistr( generator );
+//  std::string randch = input.substr( choff, chsize );
+//  std::uniform_int_distribution<int> offdistr( 256, 512 );
+//  uint64_t offset = offdistr( generator );
+//
+//  store.Write( offset, randch.size(), randch.c_str() );
+//  store.Sync();
+//
+//  if( offset + randch.size() > input.size() )
+//    input.resize( offset + randch.size() );
+//  auto dst = input.begin() + offset;
+//  std::copy( randch.begin(), randch.end(), dst );
+//
+//  uint64_t rdoff  = offset > 512 ? offset - 512 : 0;
+//  uint64_t rdsize = 1024 + randch.size();
+//  std::unique_ptr<char[]> buffer( new char[rdsize] );
+//  std::fill( buffer.get(), buffer.get() + rdsize, '\0' );
+//
+//  uint64_t bytesrd = store.Read( rdoff, rdsize, buffer.get() );
+//
+//  auto b = input.begin() + rdoff;
+//  auto e = b + bytesrd;
+//
+//  if( !std::equal( b, e, buffer.get() ) )
+//  {
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << "Well done!" << std::endl;
 
   return 0;
 }
 
-int RandomGrow( XrdEc::DataStore &store, std::default_random_engine &generator )
+int OverwriteChunk() // TODO
 {
-  std::cout << __func__ << " : ";
+//  Cleanup();
+//
+//  XrdEc::DataStore store( "dupa/jas" );
+//
+//  store.Write( 0, input.size(), input.c_str() );
+//  store.Sync();
+//
+//  std::default_random_engine generator( time( 0 ) );
+//  return OverwriteRandomChunk( store, generator );
 
-  std::uniform_int_distribution<uint64_t> sizedistr( 1.1 * input.size(), 1.3 * input.size() );
-  uint64_t size = sizedistr( generator );
+  return 0;
+}
 
-  size_t orgsize = input.size();
-
-  input.resize( size, 0 );
-  store.Truncate( size );
-
-  std::uniform_int_distribution<uint64_t> rddistr( orgsize * 0.1, orgsize * 0.2 );
-  uint64_t tmp = rddistr( generator );
-
-  uint64_t rdoff  = input.size() - tmp;
-  uint64_t rdsize = 2 * tmp;
-  std::unique_ptr<char[]> buffer( new char[rdsize] );
-  uint64_t bytesrd = store.Read( rdoff, rdsize, buffer.get() );
-
-  if( bytesrd != tmp )
-  {
-    std::cout << "bytes read after truncating : " << bytesrd << std::endl;
-    std::cout << "expected : " << tmp << std::endl;
+int RandomShrink( XrdEc::DataStore &store, std::default_random_engine &generator ) // TODO
+{
+//  std::cout << __func__ << " : ";
+//
+//  std::uniform_int_distribution<uint64_t> sizedistr( input.size() / 2, ( input.size() * 3 ) / 4 );
+//  uint64_t size = sizedistr( generator );
+//
+//  input.resize( size );
+//  store.Truncate( size );
+//
+//  std::uniform_int_distribution<uint64_t> rddistr( input.size() * 0.1, input.size() * 0.2 );
+//  uint64_t tmp = rddistr( generator );
+//
+//  uint64_t rdoff  = input.size() - tmp;
+//  uint64_t rdsize = 2 * tmp;
+//  std::unique_ptr<char[]> buffer( new char[rdsize] );
+//  uint64_t bytesrd = store.Read( rdoff, rdsize, buffer.get() );
+//
+//  if( bytesrd != tmp )
+//  {
+//    std::cout << "bytes read after truncating : " << bytesrd << std::endl;
+//    std::cout << "expected : " << tmp << std::endl;
+//    std::cout << "read offset : " << rdoff << std::endl;
+//    std::cout << "file size : " << size << std::endl;
 //
 //    std::cout << std::endl;
 //    std::cout << input.substr( rdoff, bytesrd ) << std::endl;
 //    std::cout << std::endl;
 //    std::cout << std::string( buffer.get(), bytesrd ) << std::endl << std::endl;
-
-    return 1;
-  }
-
-  auto b = input.begin() + rdoff;
-  auto e = b + tmp;
-
-  if( !std::equal( b, e, buffer.get() ) )
-  {
-    std::cout << std::endl;
-    std::cout << input.substr( rdoff, bytesrd ) << std::endl;
-    std::cout << std::endl;
-    std::cout << std::string( buffer.get(), bytesrd ) << std::endl << std::endl;
-    std::cout << "Read data don't match the original input!" << std::endl;
-    return 1;
-  }
-
-  std::cout << "Well done!" << std::endl;
+//
+//    return 1;
+//  }
+//
+//  auto b = input.begin() + rdoff;
+//  auto e = b + tmp;
+//
+//  if( !std::equal( b, e, buffer.get() ) )
+//  {
+//    std::cout << std::endl;
+//    std::cout << input.substr( rdoff, bytesrd ) << std::endl;
+//    std::cout << std::endl;
+//    std::cout << std::string( buffer.get(), bytesrd ) << std::endl << std::endl;
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << "Well done!" << std::endl;
 
   return 0;
 }
 
-int RandomizedTests( time_t seed )
+int RandomSparseWrite( XrdEc::DataStore &store, std::default_random_engine &generator ) // TODO
 {
-  ++runnb;
-
-  std::cout << "Original size: " << input.size() << std::endl;
-
-  Cleanup();
-
-  QDBSetup();
-
-  XrdEc::DataStore store( "dupa/jas" );
-
-  store.Write( 0, input.size(), input.c_str() );
-  store.Sync();
-  std::cout << __func__ << ": seed = " << seed << std::endl;
-  std::default_random_engine generator( seed );
-
-  std::uniform_int_distribution<int> funcid( 0, 6 );
-  typedef int (*randfunc)( XrdEc::DataStore&, std::default_random_engine& );
-  randfunc functions[] = { ReadRandomChunk, AppendRandomChunk, OverwriteRandomChunk, RandomShrink, RandomSparseWrite, RandomGrow, ParallelRandomRead };
-
-  for( int i = 0; i < 60; ++i )
-  {
-    std::cout << i << ": ";
-
-    int ret = functions[funcid( generator )]( store, generator );
-    if( ret )
-    {
-      std::cout << ">>>>>>>>>>>>>>>>>>>> Test failed!" << std::endl;
-      return ret;
-    }
-  }
-
-  store.Finalize();
-
-  std::cout << "Final size: " << input.size() << std::endl;
+//  std::cout << __func__ << " : ";
+//
+//  XrdEc::Config &cfg = XrdEc::Config::Instance();
+//
+//  std::uniform_int_distribution<int> offdistr( input.size() + cfg.datasize / 2 , input.size() + cfg.datasize * 3 );
+//  uint64_t wrtoff = offdistr( generator );
+//  std::uniform_int_distribution<int> sizedistr( 0.1 * input.size(), 0.2 * input.size()  );
+//  uint64_t wrtsize = sizedistr( generator );
+//  std::uniform_int_distribution<int> choffdistr( 0, input.size() - 1 - wrtsize );
+//  uint64_t choff = choffdistr( generator );
+//
+//
+//  std::string randch = input.substr( choff, wrtsize );
+//
+//  store.Write( wrtoff, wrtsize, randch.c_str() );
+//  store.Sync();
+//
+//  std::uniform_int_distribution<int> offdiff( input.size() * 0.1, input.size() * 0.2 );
+//  uint64_t oldsize = offdiff( generator );
+//  uint64_t offset = input.size() - oldsize;
+//  uint64_t size   = wrtoff - offset + randch.size() - 0.7 * randch.size();
+//  std::unique_ptr<char[]> buffer( new char[size] );
+//  std::fill( buffer.get(), buffer.get() + size, 'A' );
+//
+//  uint64_t bytesrd = store.Read( offset, size, buffer.get() );
+//
+//  if( bytesrd != size )
+//  {
+//    std::cout << "bytes read: " << bytesrd << std::endl;
+//    std::cout << "read size: " << size << std::endl;
+//    std::cout << "Wrong size of read data!" << std::endl;
+//    return 1;
+//  }
+//
+//  input.resize( wrtoff, 0 );
+//  input += randch;
+//
+//  auto b = input.begin() + offset;
+//  auto e = b + size;
+//
+//  if( !std::equal( b, e, buffer.get() ) )
+//  {
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    std::cout << "Size : " << e - b << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << "Well done!" << std::endl;
 
   return 0;
 }
+
+int RandomGrow( XrdEc::DataStore &store, std::default_random_engine &generator ) // TODO
+{
+//  std::cout << __func__ << " : ";
+//
+//  std::uniform_int_distribution<uint64_t> sizedistr( 1.1 * input.size(), 1.3 * input.size() );
+//  uint64_t size = sizedistr( generator );
+//
+//  size_t orgsize = input.size();
+//
+//  input.resize( size, 0 );
+//  store.Truncate( size );
+//
+//  std::uniform_int_distribution<uint64_t> rddistr( orgsize * 0.1, orgsize * 0.2 );
+//  uint64_t tmp = rddistr( generator );
+//
+//  uint64_t rdoff  = input.size() - tmp;
+//  uint64_t rdsize = 2 * tmp;
+//  std::unique_ptr<char[]> buffer( new char[rdsize] );
+//  uint64_t bytesrd = store.Read( rdoff, rdsize, buffer.get() );
+//
+//  if( bytesrd != tmp )
+//  {
+//    std::cout << "bytes read after truncating : " << bytesrd << std::endl;
+//    std::cout << "expected : " << tmp << std::endl;
+////
+////    std::cout << std::endl;
+////    std::cout << input.substr( rdoff, bytesrd ) << std::endl;
+////    std::cout << std::endl;
+////    std::cout << std::string( buffer.get(), bytesrd ) << std::endl << std::endl;
+//
+//    return 1;
+//  }
+//
+//  auto b = input.begin() + rdoff;
+//  auto e = b + tmp;
+//
+//  if( !std::equal( b, e, buffer.get() ) )
+//  {
+//    std::cout << std::endl;
+//    std::cout << input.substr( rdoff, bytesrd ) << std::endl;
+//    std::cout << std::endl;
+//    std::cout << std::string( buffer.get(), bytesrd ) << std::endl << std::endl;
+//    std::cout << "Read data don't match the original input!" << std::endl;
+//    return 1;
+//  }
+//
+//  std::cout << "Well done!" << std::endl;
+
+  return 0;
+}
+
+int RandomizedTests( time_t seed ) // TODO
+{
+//  ++runnb;
+//
+//  std::cout << "Original size: " << input.size() << std::endl;
+//
+//  Cleanup();
+//
+//  QDBSetup();
+//
+//  XrdEc::DataStore store( "dupa/jas" );
+//
+//  store.Write( 0, input.size(), input.c_str() );
+//  store.Sync();
+//  std::cout << __func__ << ": seed = " << seed << std::endl;
+//  std::default_random_engine generator( seed );
+//
+//  std::uniform_int_distribution<int> funcid( 0, 6 );
+//  typedef int (*randfunc)( XrdEc::DataStore&, std::default_random_engine& );
+//  randfunc functions[] = { ReadRandomChunk, AppendRandomChunk, OverwriteRandomChunk, RandomShrink, RandomSparseWrite, RandomGrow, ParallelRandomRead };
+//
+//  for( int i = 0; i < 60; ++i )
+//  {
+//    std::cout << i << ": ";
+//
+//    int ret = functions[funcid( generator )]( store, generator );
+//    if( ret )
+//    {
+//      std::cout << ">>>>>>>>>>>>>>>>>>>> Test failed!" << std::endl;
+//      return ret;
+//    }
+//  }
+//
+//  store.Finalize();
+//
+//  std::cout << "Final size: " << input.size() << std::endl;
+
+  return 0;
+}
+
+
 
 int main( int argc, char** argv )
 {
+  using namespace XrdEc;
+
   std::cout << "There we go!" << std::endl;
 
-  int rc = 0;
-  try
+  std::string path = "bible.txt";
+
+  size_t biblesize = 4047392;
+  char *bigbuff = new char[biblesize + 1024]; // big buffer than can accommodate the whole bible plus bit more
+  std::ifstream fs;
+  fs.open( path, std::fstream::in );
+  fs.read( bigbuff, biblesize );
+  fs.close();
+  bigbuff[biblesize] = 0;
+
+//  std::cout << bigbuff << std::endl;
+
+  DataStore store( path, false );
+
+  char    *wrtbuff = bigbuff;
+  size_t   wrtsize = biblesize;
+  uint64_t wrtoff = 0;
+  while( wrtsize > 0 )
   {
-    rc = RandomizedTests ( time( 0 ) );
-    if( rc ) return rc;
-    std::cout << std::endl << "And now the second round so we know the version and placement were correctly preserved!" << std::endl << std::endl;
-    rc = RandomizedTests( time( 0 ) );
+    uint32_t chsize = 1024 * 3;
+    if( chsize > wrtsize ) chsize = wrtsize;
+    SyncResponseHandler handler;
+    store.StrmWrite( wrtoff, chsize, wrtbuff, biblesize, &handler );
+
+    handler.WaitForResponse();
+    XRootDStatus *status = handler.GetStatus();
+    if( !status->IsOK() )
+    {
+      std::cout << status->ToString() << std::endl;
+      return 1;
+    }
+    delete status;
+
+    wrtsize -= chsize;
+    wrtoff  += chsize;
+    wrtbuff += chsize;
   }
-  catch( std::exception &ex )
+  store.Flush( biblesize );
+
+  SyncResponseHandler handler;
+  store.Sync( &handler );
+  handler.WaitForResponse();
+  XRootDStatus *status = handler.GetStatus();
+  if( !status->IsOK() )
   {
-    std::cout << ">>>>>>>>>>>>>>>>>>>>" << ex.what() << std::endl;
+    std::cout << "Sync failed!" << std::endl;
+    std::cout << status->ToString() << std::endl;
+    std::cout << status->GetErrorMessage() << std::endl;
     return 1;
   }
-  if( rc ) return rc;
+  else
+    std::cout << "Wrote whole bible into data store!" << std::endl;
+  delete status;
+
+  // TODO
+
+
+  uint32_t chsize = 1024 * 4;
+  SyncResponseHandler handler2;
+  char rdbuff[chsize];
+  store.StrmRead( 0, chsize, rdbuff, &handler2 );
+  handler2.WaitForResponse();
+  status = handler2.GetStatus();
+  std::cout << status->ToString() << std::endl;
+  delete status;
+
+  std::cout << ( std::equal( rdbuff, rdbuff + chsize, bigbuff ) ? "EQUAL" : "NOT EQUAL" ) << std::endl;
+
+
+
+//  int rc = 0;
+//  try
+//  {
+//    rc = RandomizedTests ( time( 0 ) );
+//    if( rc ) return rc;
+//    std::cout << std::endl << "And now the second round so we know the version and placement were correctly preserved!" << std::endl << std::endl;
+//    rc = RandomizedTests( time( 0 ) );
+//  }
+//  catch( std::exception &ex )
+//  {
+//    std::cout << ">>>>>>>>>>>>>>>>>>>>" << ex.what() << std::endl;
+//    return 1;
+//  }
+//  if( rc ) return rc;
 
 //  Cleanup();
 
+  delete[] bigbuff;
   std::cout << "The End." << std::endl;
 
   return 0;

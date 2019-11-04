@@ -87,6 +87,10 @@ add_library(
   XrdEcBlockReader.hh          XrdEcBlockReader.cc
   XrdEcStripeReader.hh         XrdEcStripeReader.cc
   XrdEcUtilities.hh            XrdEcUtilities.cc
+  
+  XrdEcWriteBlock.hh           XrdEcWriteBlock.cc
+  XrdEcReadBlock.hh            XrdEcReadBlock.cc
+  XrdEcScheduleHandler.hh      XrdEcScheduleHandler.cc
 ) 
 
 target_link_libraries(
@@ -127,6 +131,10 @@ add_library(
   XrdEcBlockReader.hh          XrdEcBlockReader.cc
   XrdEcStripeReader.hh         XrdEcStripeReader.cc
   XrdEcUtilities.hh            XrdEcUtilities.cc
+  
+  XrdEcWriteBlock.hh           XrdEcWriteBlock.cc
+  XrdEcReadBlock.hh            XrdEcReadBlock.cc
+  XrdEcScheduleHandler.hh      XrdEcScheduleHandler.cc
 )
 
 target_link_libraries(
