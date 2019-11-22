@@ -40,6 +40,8 @@ namespace XrdEc
 {
   void ScheduleHandler( uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
   {
+    if( !handler ) return;
+
     XrdCl::ChunkInfo *chunk = new XrdCl::ChunkInfo();
     chunk->offset = offset;
     chunk->length = size;
@@ -54,7 +56,9 @@ namespace XrdEc
 
   void ScheduleHandler( XrdCl::ResponseHandler *handler, const XrdCl::XRootDStatus &st )
   {
-    ResponseJob *job = new ResponseJob( handler, new XrdCl::XRootDStatus(), 0 );
+    if( !handler ) return;
+
+    ResponseJob *job = new ResponseJob( handler, new XrdCl::XRootDStatus( st ), 0 );
     XrdCl::DefaultEnv::GetPostMaster()->GetJobManager()->QueueJob( job );
   }
 }

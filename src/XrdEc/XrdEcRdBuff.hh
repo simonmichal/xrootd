@@ -14,9 +14,15 @@
 
 #include "XrdCl/XrdClBuffer.hh"
 #include "XrdCl/XrdClXRootDResponses.hh"
+#include "XrdCl/XrdClDefaultEnv.hh"
+#include "XrdCl/XrdClCheckSumManager.hh"
+#include "XrdCl/XrdClUtils.hh"
+#include "XrdCks/XrdCksCalc.hh"
 
 #include <utility>
 #include <vector>
+#include <mutex>
+#include <functional>
 
 namespace XrdEc
 {
@@ -28,12 +34,12 @@ namespace XrdEc
 
     public:
 
-      RdBuff( uint64_t offset, char *buffer = 0 ) : buffer( buffer ), mine( !buffer ), empty( true )
+      RdBuff( uint64_t offset, char *buffer = 0 ) : buffer( buffer ), mine( !buffer ), ready( false )
       {
         Config &cfg  = Config::Instance();
         this->offset = offset - ( offset % cfg.datasize );
         this->size   = cfg.datasize;
-        if( !buffer ) buffer = new char[cfg.datasize];
+        if( !buffer ) this->buffer = new char[cfg.datasize];
       }
 
       ~RdBuff()
@@ -47,12 +53,22 @@ namespace XrdEc
         if( this->offset > offset ||
             offset > this->offset + this->size ) return 0;
 
-
         uint64_t buffoff = offset - this->offset;
         if( size > this->size - buffoff )
           size = this->size - buffoff;
 
-        memcpy( buffer, this->buffer, size );
+        // check if the data are ready in the buffer
+        std::unique_lock<std::mutex> lck( mtx );
+        if( !ready )
+        {
+          // if not, register a callback for later on
+          RegisterRead( offset, size, buffer, handler );
+          return size;
+        }
+        // The data are ready - unlock the mutex!
+        lck.unlock();
+
+        memcpy( buffer, this->buffer + buffoff, size );
         ScheduleHandler( offset, size, buffer, handler );
         return size;
       }
@@ -62,18 +78,40 @@ namespace XrdEc
         return ( offset > this->offset ) && ( offset < this->offset + this->size );
       }
 
-      bool Empty()
-      {
-        return empty;
-      }
-
     private:
 
-      uint64_t  offset;
-      uint32_t  size;
-      char     *buffer;
-      bool      mine;
-      bool      empty;
+      void RegisterRead( uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
+      {
+        auto callback = [offset, size, buffer, handler, this]( const XrdCl::XRootDStatus &st )
+            {
+              if( st.IsOK() )
+              {
+                uint64_t buffoff = offset - this->offset;
+                memcpy( buffer, this->buffer + buffoff, size );
+                ScheduleHandler( offset, size, buffer, handler );
+              }
+              else
+                ScheduleHandler( handler, st );
+            };
+        pending_reads.emplace_back( std::move( callback ) );
+      }
+
+      void RunCallbacks( const XrdCl::XRootDStatus &st )
+      {
+        std::unique_lock<std::mutex> lck( mtx );
+        ready = true;
+        for( auto &cb : pending_reads ) cb( st );
+      }
+
+      uint64_t    offset;
+      uint32_t    size;
+      char       *buffer;
+      bool        mine;
+
+      std::mutex                        mtx;
+      bool                              ready;
+      std::vector<std::function<void(const XrdCl::XRootDStatus&)>> pending_reads;
+
   };
 }
 

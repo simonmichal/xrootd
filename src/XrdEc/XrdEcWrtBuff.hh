@@ -21,11 +21,13 @@
 
 namespace XrdEc
 {
+  enum WrtMode { New, Overwrite };
+
   class WrtBuff
   {
     public:
 
-      WrtBuff( uint64_t offset ) : mine( true ), paritybuff( Config::Instance().paritysize )
+      WrtBuff( uint64_t offset, WrtMode mode ) : mine( true ), paritybuff( Config::Instance().paritysize ), wrtmode( mode )
       {
         Config &cfg = Config::Instance();
         this->offset = offset - ( offset % cfg.datasize );
@@ -36,7 +38,8 @@ namespace XrdEc
                                       wrtbuff( std::move( wrtbuff.wrtbuff ) ),
                                       mine( wrtbuff.mine ),
                                       paritybuff( std::move( wrtbuff.paritybuff ) ),
-                                      stripes( std::move( wrtbuff.stripes ) )
+                                      stripes( std::move( wrtbuff.stripes ) ),
+                                      wrtmode( wrtbuff.wrtmode )
       {
       }
 
@@ -47,7 +50,7 @@ namespace XrdEc
 
       uint32_t Write( uint64_t offset, uint32_t size, const char *buffer, XrdCl::ResponseHandler *handler )
       {
-        if( this->offset + wrtbuff.GetCursor() != offset ) throw std::exception(); // TODO
+        if( this->offset + wrtbuff.GetCursor() != offset ) throw std::exception();
 
         Config &cfg = Config::Instance();
         if( wrtbuff.GetCursor() == 0 && size >= cfg.datasize )
@@ -78,6 +81,24 @@ namespace XrdEc
         if( bytesAccepted == size ) ScheduleHandler( handler );
 
         return bytesAccepted;
+      }
+
+      void Pad( uint32_t size )
+      {
+        // if the buffer exist we only need to move the cursor
+        if( wrtbuff.GetSize() != 0 )
+        {
+          wrtbuff.AdvanceCursor( size );
+          return;
+        }
+
+        // otherwise we allocate the buffer and set the cursor
+        mine = true;
+        Config &cfg = Config::Instance();
+        wrtbuff.Allocate( cfg.datasize );
+        memset( wrtbuff.GetBuffer(), 0, wrtbuff.GetSize() );
+        wrtbuff.SetCursor( size );
+        return;
       }
 
       void* GetChunk( uint8_t strpnb )
@@ -121,7 +142,13 @@ namespace XrdEc
 
       std::string GetChecksum( uint8_t strpnb )
       {
-        return "zcrc32:abcdcafe"; // TODO
+        Config &cfg = Config::Instance();
+        return CalcChecksum( stripes[strpnb].buffer, cfg.chunksize );
+      }
+
+      inline uint32_t GetBlkSize()
+      {
+        return wrtbuff.GetCursor();
       }
 
       bool Complete()
@@ -146,14 +173,24 @@ namespace XrdEc
         cfg.redundancy.compute( stripes );
       }
 
-    private:
-    public:
+      WrtMode GetWrtMode()
+      {
+        return wrtmode;
+      }
 
-      uint64_t offset;
+      uint64_t GetOffset()
+      {
+        return offset;
+      }
+
+    private:
+
+      uint64_t       offset;
       XrdCl::Buffer  wrtbuff;
       bool           mine;
       XrdCl::Buffer  paritybuff;
       stripes_t      stripes;
+      WrtMode        wrtmode;
   };
 
 } /* namespace XrdEc */

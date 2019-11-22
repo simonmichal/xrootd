@@ -17,6 +17,29 @@
 
 namespace XrdEc
 {
+  std::string CalcChecksum( const char *buffer, uint64_t size )
+  {
+    using namespace XrdCl;
+
+    CheckSumManager *cksMan = DefaultEnv::GetCheckSumManager();
+    XrdCksCalc *cksCalcObj = cksMan->GetCalculator( "zcrc32" );
+    cksCalcObj->Update( buffer, size );
+
+    int          calcSize = 0;
+    std::string  calcType = cksCalcObj->Type( calcSize );
+
+    XrdCksData ckSum;
+    ckSum.Set( calcType.c_str() );
+    ckSum.Set( (void*)cksCalcObj->Final(), calcSize );
+    char *cksBuffer = new char[265];
+    ckSum.Get( cksBuffer, 256 );
+    std::string checkSum  = calcType + ":";
+    checkSum += Utils::NormalizeChecksum( calcType, cksBuffer );
+    delete [] cksBuffer;
+    delete cksCalcObj;
+    return checkSum;
+  }
+
   LocationStatus ToLocationStatus( const std::string &str )
   {
     if( str == "rw" ) return rw;

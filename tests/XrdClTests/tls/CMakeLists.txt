@@ -24,7 +24,6 @@ target_link_libraries(
   XrdEc
   uuid
   dl
-  qclient
   pthread )
 
 add_executable(

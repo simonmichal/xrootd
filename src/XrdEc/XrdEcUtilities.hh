@@ -11,6 +11,11 @@
 #include "XrdCl/XrdClXRootDResponses.hh"
 #include "XrdCl/XrdClFileSystem.hh"
 
+#include "XrdCl/XrdClDefaultEnv.hh"
+#include "XrdCl/XrdClCheckSumManager.hh"
+#include "XrdCl/XrdClUtils.hh"
+#include "XrdCks/XrdCksCalc.hh"
+
 #include <exception>
 #include <memory>
 #include <random>
@@ -42,6 +47,9 @@ namespace XrdEc
   typedef std::tuple<std::string,  LocationStatus> location_t;
   typedef std::vector<location_t>  placement_group;
   typedef std::vector<std::string> placement_t;
+
+  std::string CalcChecksum( const char *buffer, uint64_t size );
+
 
   //----------------------------------------------------------------------------
   //! a buffer type

@@ -37,6 +37,8 @@ namespace XrdEc
                   std::shared_ptr<RdBuff> &rdbuff,
                   XrdCl::ResponseHandler  *handler );
 
+  void RandomRead(); // TODO
+
 } /* namespace XrdEc */
 
 #endif /* SRC_XRDEC_XRDECREADBLOCK_HH_ */

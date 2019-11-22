@@ -78,7 +78,7 @@ set( LIB_XRD_EC  XrdEc-${PLUGIN_VERSION} )
 add_library(
   ${LIB_XRD_EC}
   MODULE
-  XrdEcDataStore.hh            XrdEcDataStore.cc
+  XrdEcDataObject.hh           XrdEcDataObject.cc
   XrdEcBlock.hh                XrdEcBlock.cc
   XrdEcBlockPool.hh
   XrdEcConfig.hh
@@ -90,6 +90,7 @@ add_library(
   
   XrdEcWriteBlock.hh           XrdEcWriteBlock.cc
   XrdEcReadBlock.hh            XrdEcReadBlock.cc
+  XrdEcTruncate.hh             XrdEcTruncate.cc
   XrdEcScheduleHandler.hh      XrdEcScheduleHandler.cc
 ) 
 
@@ -122,7 +123,7 @@ set( XRD_EC_SOVERSION 1 )
 add_library(
   XrdEc
   SHARED
-  XrdEcDataStore.hh            XrdEcDataStore.cc
+  XrdEcDataObject.hh           XrdEcDataObject.cc
   XrdEcBlock.hh                XrdEcBlock.cc
   XrdEcBlockPool.hh
   XrdEcConfig.hh
@@ -131,9 +132,11 @@ add_library(
   XrdEcBlockReader.hh          XrdEcBlockReader.cc
   XrdEcStripeReader.hh         XrdEcStripeReader.cc
   XrdEcUtilities.hh            XrdEcUtilities.cc
+  XrdEcRandomRead.hh           XrdEcRandomRead.cc
   
   XrdEcWriteBlock.hh           XrdEcWriteBlock.cc
   XrdEcReadBlock.hh            XrdEcReadBlock.cc
+  XrdEcTruncate.hh             XrdEcTruncate.cc
   XrdEcScheduleHandler.hh      XrdEcScheduleHandler.cc
 )
 

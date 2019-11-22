@@ -19,9 +19,14 @@ namespace XrdEc
   void WriteBlock( const std::string      &obj,
                    const std::string      &sign,
                    const placement_group  &plgr,
-                   uint64_t                fnlsize,
                    WrtBuff               &&wrtbuff,
                    XrdCl::ResponseHandler *handler );
+
+  void CreateEmptyBlock( const std::string      &obj,
+                         const std::string      &sign,
+                         const placement_group  &plgr,
+                         uint64_t                blknb,
+                         XrdCl::ResponseHandler *handler );
 
 } /* namespace XrdEc */
 
