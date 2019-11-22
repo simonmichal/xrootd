@@ -13,6 +13,7 @@
 #include "XrdCl/XrdClParallelOperation.hh"
 
 #include <mutex>
+#include <sstream>
 
 namespace XrdEc
 {
@@ -39,6 +40,11 @@ namespace XrdEc
         std::unique_lock<std::mutex> lck( mtx );
         ++nbnotfound;
 
+        std::stringstream ss;
+        ss << "StrmRdCtx::NotFound (" << (void*) this << ") : nbnotfound = " << int( nbnotfound );
+        Logger &log = Logger::Instance();
+        log.Entry( ss.str() );
+
         XrdEc::Config &cfg = XrdEc::Config::Instance();
         if( nbnotfound > nburls - cfg.nbchunks ) OnError();
       }
@@ -47,6 +53,11 @@ namespace XrdEc
       {
         std::unique_lock<std::mutex> lck( mtx );
         ++nberr;
+
+        std::stringstream ss;
+        ss << "StrmRdCtx::OnError (" << (void*) this << ") : nberr = " << int( nberr );
+        Logger &log = Logger::Instance();
+        log.Entry( ss.str() );
 
         XrdEc::Config &cfg = XrdEc::Config::Instance();
         if( nberr > cfg.paritysize )
@@ -65,6 +76,11 @@ namespace XrdEc
       {
         std::unique_lock<std::mutex> lck( mtx );
         ++nbok;
+
+        std::stringstream ss;
+        ss << "StrmRdCtx::OnSuccess (" << (void*) this << ") : nbok = " << int( nbok );
+        Logger &log = Logger::Instance();
+        log.Entry( ss.str() );
 
         // if there's no handler it means we already reconstructed this chunk
         // and called user handler!
@@ -173,10 +189,10 @@ namespace
   {
     using namespace XrdCl;
 
+    std::stringstream ss;
+    ss << "ReadStripe (StrmRdCtx = " << ctx.get() << ") : url = " << url;
     Logger &log = Logger::Instance();
-    std::string msg = __func__;
-    msg            += " : " + url;
-    log.Entry( std::move( msg ) );
+    log.Entry( ss.str() );
 
     Config &cfg = Config::Instance();
     std::unique_lock<std::mutex> lck( ctx->mtx );
@@ -243,13 +259,22 @@ namespace XrdEc
 
       void HandleResponse( XrdCl::XRootDStatus *st, XrdCl::AnyObject *rsp )
       {
-        std::unique_lock<std::mutex> mtx;
+        std::unique_lock<std::mutex> lck( mtx );
+        Logger &log = Logger::Instance();
 
         // decrement the request counter
         --nbreq;
 
+        std::stringstream ss;
+        ss << "AcrossBlkRdHandler::HandleResponse (" << (void*) this << ") : nbreq = " << nbreq;
+        log.Entry( ss.str() );
+
         if( !st->IsOK() || failed )
         {
+          std::stringstream ss;
+          ss << "AcrossBlkRdHandler::HandleResponse (" << (void*) this << ") : failed!";
+          log.Entry( ss.str() );
+
           // if this is the first failure call the user handler
           // and set the state to failed
           if( handler )
@@ -266,7 +291,11 @@ namespace XrdEc
             delete rsp;
           }
           // if this is the last response delete itself
-          if( nbreq == 0 ) delete this;
+          if( nbreq == 0 )
+          {
+            lck.unlock();
+            delete this;
+          }
           return;
         }
 
@@ -300,7 +329,8 @@ namespace XrdEc
           // space left in the buffer
           uint32_t buffsz = size - buffoff;
           if( buffsz > chunk->length ) buffsz = chunk->length;
-          memcpy( buffer + buffoff, chunk->buffer, buffsz );
+          if( buffer + buffoff != chunk->buffer ) // make sure the data were not copied to the destination buffer already
+            memmove( buffer + buffoff, chunk->buffer, buffsz );
           nbrd += buffsz;
         }
         else
@@ -318,6 +348,7 @@ namespace XrdEc
             response->Set( chunk );
             handler->HandleResponse( new XrdCl::XRootDStatus(), response );
           }
+          lck.unlock();
           delete this;
         }
 
@@ -330,6 +361,7 @@ namespace XrdEc
       uint64_t                offset;
       uint32_t                size;
       char                   *buffer;
+      std::mutex              mtx;
       uint32_t                nbrd;  // number of bytes read
       uint32_t                nbreq; // number of requests this handler will need to handle
       XrdCl::ResponseHandler *handler;

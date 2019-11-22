@@ -10,6 +10,7 @@
 #include "XrdEc/XrdEcUtilities.hh"
 #include "XrdEc/XrdEcConfig.hh"
 #include "XrdEc/XrdEcReadBlock.hh"
+#include "XrdEc/XrdEcLogger.hh"
 
 #include "XrdCl/XrdClFileOperations.hh"
 #include "XrdCl/XrdClParallelOperation.hh"
@@ -101,6 +102,12 @@ namespace
       {
         std::unique_lock<std::mutex> lck( mtx );
         ++count;
+
+        std::stringstream ss;
+        ss << "RandRdCtx::Handle (" << (void*)this << ") : count = " << count;
+        XrdEc::Logger &log = XrdEc::Logger::Instance();
+        log.Entry( ss.str() );
+
         if( status.IsOK() && !st.IsOK() )
           status = st;
       }
@@ -130,6 +137,17 @@ namespace
 
       void Handle( const XrdCl::XRootDStatus &st )
       {
+        std::stringstream ss;
+        ss << "ReadStripe::Handle (" << (void*)this << ") : url = " << url << ", st = " << ( st.IsOK() ? "OK" : "FAILED" ) << ", strpnb = " << strpnb << ", chnb = " << chnb;
+        XrdEc::Logger &log = XrdEc::Logger::Instance();
+        log.Entry( ss.str() );
+
+        if( !st.IsOK() )
+        {
+          ctx->Handle( st );
+          return;
+        }
+
         if( strpnb != chnb )
         {
           ctx->Handle( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errInternal ) );
@@ -148,6 +166,7 @@ namespace
         uint64_t chsize = blksize <= choff ? 0 : blksize - choff;
         if( chsize > cfg.chunksize ) chsize = cfg.chunksize;
         rdbuff.finalize( chsize );
+
         ctx->Handle( XrdCl::XRootDStatus() );
       }
 

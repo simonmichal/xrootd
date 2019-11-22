@@ -55,15 +55,15 @@ namespace XrdEc
 
       void Purge()
       {
-        std::unique_lock<std::mutex> lck( mtx );
-
-        // TODO
-        // - truncate the log file to 0
+        std::unique_lock<std::mutex> lck( wrtmtx );
+        fout.close();
+        std::remove( path.c_str() );
+        new( &fout ) std::fstream( path, std::fstream::out );
       }
 
     private:
 
-      Logger( const std::string &out ) : fout( out, std::fstream::out ), worker( Work, this ), done( false )
+      Logger( const std::string &out ) : fout( out, std::fstream::out ), worker( Work, this ), done( false ), path( out )
       {
 
       }
@@ -120,10 +120,16 @@ namespace XrdEc
 
       inline void Write( std::queue<std::unique_ptr<LogEntry>> &towrt )
       {
+        std::unique_lock<std::mutex> lck( wrtmtx );
+
         while( !towrt.empty() )
         {
           std::time_t timestmp = std::time( nullptr );
-          fout << '[' << std::asctime( std::localtime( &timestmp ) ) << "] ";
+          std::string timestr  = "[";
+          timestr += std::asctime( std::localtime( &timestmp ) );
+          timestr[timestr.size()-1] = ']';
+
+          fout << timestr << " ";
           fout << towrt.front()->message << '\n';
           fout.flush();
           towrt.pop();
@@ -137,6 +143,9 @@ namespace XrdEc
       bool                      done;
       std::mutex                mtx;
       std::condition_variable   cv;
+
+      std::mutex                wrtmtx;
+      std::string               path;
   };
 
 } /* namespace XrdEc */

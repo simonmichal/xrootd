@@ -17,6 +17,7 @@
 
 #include "XrdEc/XrdEcConfig.hh"
 #include "XrdEc/XrdEcUtilities.hh"
+#include "XrdEc/XrdEcLogger.hh"
 //#include "XrdEc/XrdEcMetadataProvider.hh"
 #include "XrdEc/XrdEcUtilities.hh"
 
@@ -98,6 +99,9 @@ bool WriteBible( DataObject &store, char *bigbuff, size_t biblesize )
     std::cout << "Wrote whole bible into data store!" << std::endl;
   delete status;
 
+  // we are done, everything is good so we can purge the log file
+  Logger::Instance().Purge();
+
   return true;
 }
 
@@ -146,6 +150,9 @@ bool ReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint32_t chsi
 
     ++chnb;
   }
+
+  // we are done, everything is good so we can purge the log file
+  Logger::Instance().Purge();
 
   return true;
 }
@@ -230,6 +237,9 @@ bool RandReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint64_t 
     std::cout << "Bytes read don't match the reference!" << std::endl;
     return false;
   }
+
+  // we are done, everything is good so we can purge the log file
+  Logger::Instance().Purge();
 
   return true;
 }
@@ -320,6 +330,9 @@ bool TruncateStore( DataObject &store, uint64_t size )
     return false;
   }
   delete status;
+
+  // we are done, everything is good so we can purge the log file
+  Logger::Instance().Purge();
 
   return true;
 }
@@ -578,6 +591,9 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
     return false;
   }
 
+  // we are done, everything is good so we can purge the log file
+  Logger::Instance().Purge();
+
   return true;
 }
 
@@ -615,6 +631,8 @@ int main( int argc, char** argv )
     std::cout << "TruncateStore: failed!" << std::endl;
     return 1;
   }
+  else
+    std::cout << "TruncateStore: succeeded!" << std::endl;
 
   if( !WriteBible( object, bigbuff, biblesize ) )
   {

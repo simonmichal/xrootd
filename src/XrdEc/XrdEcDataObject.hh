@@ -22,6 +22,7 @@
 
 #include "XrdEc/XrdEcEosAdaptor.hh"
 #include "XrdEc/XrdEcConfig.hh"
+#include "XrdEc/XrdEcLogger.hh"
 
 #include "XrdCl/XrdClXRootDResponses.hh"
 
@@ -32,7 +33,7 @@
 #include <atomic>
 #include <mutex>
 
-#include <iostream>
+#include <sstream>
 
 namespace XrdEc
 {
@@ -51,6 +52,11 @@ namespace XrdEc
           {
             std::unique_lock<std::mutex> lck( mtx );
             --wrtcnt;
+
+            std::stringstream ss;
+            ss << "StrmWrtHandler::HandleResponse (" << (void*)this << ") : wrtcnt = " << wrtcnt << ", st = " << ( st->IsOK() ? "OK" : "FAILED" );
+            Logger &log = Logger::Instance();
+            log.Entry( ss.str() );
 
             if( !st->IsOK() && status.IsOK() )
               status = *st;

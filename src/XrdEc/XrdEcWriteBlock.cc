@@ -10,6 +10,7 @@
 #include "XrdEc/XrdEcWrtBuff.hh"
 #include "XrdCl/XrdClFileOperations.hh"
 #include "XrdCl/XrdClParallelOperation.hh"
+#include "XrdEc/XrdEcLogger.hh"
 
 #include <memory>
 #include <mutex>
@@ -45,8 +46,20 @@ namespace
       {
         std::unique_lock<std::mutex> lck( mtx );
 
+        Logger &log = Logger::Instance();
+        std::stringstream ss;
+        ss << "StrmWrtCtxBase::Retry (" << (void*)this << ") : url = " << ( placement[strpnb] + objname );
+
         // if everything is OK or there are no spares we don't retry
-        if( st.IsOK() || !retriable[strpnb] || spares.empty() ) return false;
+        if( st.IsOK() || !retriable[strpnb] || spares.empty() )
+        {
+          ss << ", return = false";
+          log.Entry( ss.str() );
+          return false;
+        }
+
+        ss << ", return = true";
+        log.Entry( ss.str() );
 
         placement[strpnb] = spares.back();
         spares.pop_back();
@@ -63,7 +76,8 @@ namespace
       }
 
       void HandleOpenStatus( const XrdCl::XRootDStatus &st, uint8_t strpnb )
-      {std::unique_lock<std::mutex> lck( mtx );
+      {
+        std::unique_lock<std::mutex> lck( mtx );
         retriable[strpnb] = !( !st.IsOK() && st.code == XrdCl::errErrorResponse &&
                                ( st.errNo == kXR_InvalidRequest || st.errNo == kXR_FileLocked ) ) ;
       }
@@ -101,6 +115,11 @@ namespace
     flags |= OpenFlags::Write | OpenFlags::POSC;
     std::string url = ctx->placement[strpnb] + '/' + ctx->objname;
     std::string checksum = ctx->wrtbuff.GetChecksum( strpnb );
+
+    std::stringstream ss;
+    ss << "WriteStripe (StrmWrtCtx = " << ctx.get() << ") : url = " << url;
+    Logger &log = Logger::Instance();
+    log.Entry( ss.str() );
 
     // Construct the pipeline
     Pipeline wrtstrp = Open( file.get(), url, flags ) >> [strpnb, ctx]( XRootDStatus &st ){ ctx->HandleOpenStatus( st, strpnb ); }
@@ -155,6 +174,11 @@ namespace
     OpenFlags::Flags flags = OpenFlags::New | OpenFlags::Write | OpenFlags::POSC;
     std::string url = ctx->placement[strpnb] + '/' + ctx->objname;
     static const std::string checksum = GetChecksum();
+
+    std::stringstream ss;
+    ss << "WriteEmptyStripe (StrmWrtCtxBase = " << ctx.get() << ") : url = " << url;
+    Logger &log = Logger::Instance();
+    log.Entry( ss.str() );
 
     Config &cfg = Config::Instance();
 
