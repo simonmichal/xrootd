@@ -8,6 +8,8 @@
 #ifndef SRC_XRDEC_XRDECUTILITIES_HH_
 #define SRC_XRDEC_XRDECUTILITIES_HH_
 
+#include "XrdEc/XrdEcObjCfg.hh"
+
 #include "XrdCl/XrdClXRootDResponses.hh"
 #include "XrdCl/XrdClFileSystem.hh"
 
@@ -131,107 +133,6 @@ namespace XrdEc
       std::string msg;
   };
 
-
-  //----------------------------------------------------------------------------
-  //! Utility class for handling chunk buffers
-  //!
-  //! We are always reading the whole data chunk because we want to compare the
-  //! checksum. If user buffer is big enough to accommodate a whole chunk it will
-  //! be used, otherwise ChunkBuffer will allocate memory for the data chunk and
-  //! upon destruction will copy the respective part of data into the user buffer.
-  //----------------------------------------------------------------------------
-  class ChunkBuffer
-  {
-    public:
-
-      //------------------------------------------------------------------------
-      //! Constructor.
-      //!
-      //! @param offset : offset in the chunk
-      //! @param size   : size of the read from the chunk
-      //! @param dst    : the user buffer for the read
-      //------------------------------------------------------------------------
-      ChunkBuffer( uint64_t offset, uint64_t size, char* dst );
-
-      //------------------------------------------------------------------------
-      //! Destructor.
-      //!
-      //! Upon destruction data will be copied into user buffer if necessary.
-      //------------------------------------------------------------------------
-      ~ChunkBuffer()
-      {
-        // do we have both a private buffer and a user buffer?
-        if( buffer && userbuff )
-          memcpy( userbuff, buffer.get() + offset, size );
-      }
-
-      //------------------------------------------------------------------------
-      //! @return : pointer to the buffer
-      //------------------------------------------------------------------------
-      void* Get()
-      {
-        if( buffer ) return buffer.get();
-        return userbuff;
-      }
-
-      //------------------------------------------------------------------------
-      //! Marks the data in the buffer as invalid
-      //------------------------------------------------------------------------
-      void Invalidate()
-      {
-        valid = false;
-      }
-
-      //------------------------------------------------------------------------
-      //! @return : true if data in the buffer are valid, false otherwise
-      //------------------------------------------------------------------------
-      bool IsValid() const
-      {
-        return valid;
-      }
-
-    private:
-
-      //------------------------------------------------------------------------
-      //! private buffer
-      //------------------------------------------------------------------------
-      std::unique_ptr<char[]> buffer;
-
-      //------------------------------------------------------------------------
-      //! Flag indicating whether the data in the buffer are valid
-      //------------------------------------------------------------------------
-      bool  valid;
-
-      //------------------------------------------------------------------------
-      //! Chunk relative offset of the read
-      //------------------------------------------------------------------------
-      uint64_t  offset;
-
-      //------------------------------------------------------------------------
-      //! Chunk relative size of the read
-      //------------------------------------------------------------------------
-      uint64_t  size;
-
-      //------------------------------------------------------------------------
-      //! User buffer fot the data
-      //------------------------------------------------------------------------
-      char     *userbuff;
-  };
-
-  //----------------------------------------------------------------------------
-  //! Alias for a shared pointer to ChunkBuffer (@see ChunkBuffer)
-  //----------------------------------------------------------------------------
-  typedef std::shared_ptr<ChunkBuffer> chbuff;
-
-  //----------------------------------------------------------------------------
-  //! Utility function for creating chunk buffers
-  //----------------------------------------------------------------------------
-  inline chbuff make_chbuff( uint64_t offset = 0, uint64_t size = 0, char* dst = nullptr )
-  {
-    return std::make_shared<ChunkBuffer>( offset, size, dst );
-  }
-
-
   //----------------------------------------------------------------------------
   //! Creates a sufix for a data chunk file
   //!
@@ -264,17 +165,21 @@ namespace XrdEc
   //! @param relocate  : true if the chunk should be relocated even if
   //                     a placement for it already exists, false otherwise
   //------------------------------------------------------------------------
-  XrdCl::OpenFlags::Flags Place( uint8_t                      chunkid,
+  XrdCl::OpenFlags::Flags Place( const ObjCfg                &objcfg,
+                                 uint8_t                      chunkid,
                                  placement_t                 &placement,
                                  std::default_random_engine  &generator,
                                  const placement_group       &plgr,
                                  bool                         relocate );
 
-  placement_t GeneratePlacement( const std::string     &objname,
+  placement_t GeneratePlacement( const ObjCfg          &objcfg,
+                                 const std::string     &objname,
                                  const placement_group &plgr,
                                  bool                   write     );
 
-  placement_t GetSpares( const placement_group &plgr, const placement_t &placement, bool write );
+  placement_t GetSpares( const placement_group &plgr,
+                         const placement_t     &placement,
+                         bool                   write );
 
 }
 

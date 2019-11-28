@@ -16,13 +16,10 @@
 #include "XrdEc/XrdEcScheduleHandler.hh"
 #include "XrdEc/XrdEcTruncate.hh"
 
-#include "XrdEc/XrdEcBlock.hh"
-#include "XrdEc/XrdEcBlockPool.hh"
-#include "XrdEc/XrdEcStripeReader.hh"
-
 #include "XrdEc/XrdEcEosAdaptor.hh"
 #include "XrdEc/XrdEcConfig.hh"
 #include "XrdEc/XrdEcLogger.hh"
+#include "XrdEc/XrdEcObjCfg.hh"
 
 #include "XrdCl/XrdClXRootDResponses.hh"
 
@@ -109,6 +106,9 @@ namespace XrdEc
         objname   = std::move( feedback.objname );
         plgr      = std::move( feedback.plgr );
         signature = std::move( feedback.signature );
+
+        // construct the object configuration
+        objcfg.reset( new ObjCfg( objname ) );
       }
 
       virtual ~DataObject()
@@ -130,19 +130,18 @@ namespace XrdEc
         if( offset + size > objsize )
           size = objsize - offset;
 
-        XrdCl::ResponseHandler *rdHandler = GetRdHandler( offset, size, buff, handler );
-        Config &cfg = Config::Instance();
+        XrdCl::ResponseHandler *rdHandler = GetRdHandler( *objcfg, offset, size, buff, handler );
 
         while( size > 0 )
         {
           // if the user issued a read that is aligned with our block size
           // we can read directly into the user buffer
-          if( BlockAligned( offset, size ) )
+          if( BlockAligned( *objcfg, offset, size ) )
           {
-            ReadBlock( objname, signature, plgr, offset, buff, rdHandler );
-            size   -= cfg.datasize;
-            offset += cfg.datasize;
-            buff   += cfg.datasize;
+            ReadBlock( *objcfg, signature, plgr, offset, buff, rdHandler );
+            size   -= objcfg->datasize;
+            offset += objcfg->datasize;
+            buff   += objcfg->datasize;
           }
           else
           {
@@ -158,11 +157,11 @@ namespace XrdEc
             {
               // create a new read buffer if it doesn't exist or if it doesn't contain
               // data that we are interested in
-              rdbuff.reset( new RdBuff( offset ) );
+              rdbuff.reset( new RdBuff( *objcfg, offset ) );
               // otherwise read out a new block into the read buffer
               // (the handler will copy the data into user buffer)
-              ReadBlock( objname, signature, plgr, rdbuff, rdHandler );
-              uint32_t nbrd = cfg.datasize;
+              ReadBlock( *objcfg, signature, plgr, rdbuff, rdHandler );
+              uint32_t nbrd = objcfg->datasize;
               if( nbrd > size ) nbrd = size;
               size   -= nbrd;
               offset += nbrd;
@@ -188,18 +187,17 @@ namespace XrdEc
         if( offset + size > objsize )
           size = objsize - offset;
 
-        Config &cfg = Config::Instance();
-        uint64_t firstblk  = offset / cfg.datasize;
-        uint64_t blkoff    = offset - firstblk * cfg.datasize;
+        uint64_t firstblk  = offset / objcfg->datasize;
+        uint64_t blkoff    = offset - firstblk * objcfg->datasize;
         uint32_t nbrd      = 0;
         uint32_t left      = size;
-        RandRdHandler *rdHandler = new RandRdHandler( offset, size, buff, handler );
+        RandRdHandler *rdHandler = new RandRdHandler( *objcfg, offset, size, buff, handler );
 
         for( uint64_t blknb = firstblk; nbrd < size; ++blknb )
         {
           uint32_t blkrdsize = left;
-          if( blkrdsize > cfg.datasize - blkoff )
-            blkrdsize = cfg.datasize - blkoff;
+          if( blkrdsize > objcfg->datasize - blkoff )
+            blkrdsize = objcfg->datasize - blkoff;
           ReadFromBlock( objname, signature, plgr, offset, blkrdsize, buff, rdHandler );
           nbrd   += blkrdsize;
           offset += blkrdsize;
@@ -224,7 +222,7 @@ namespace XrdEc
         const char *buff = reinterpret_cast<const char*>( buffer );
         uint32_t wrtsize = size;
         WrtMode  mode    = offset < objsize ? WrtMode::Overwrite : WrtMode::New;
-        if( !wrtbuff ) wrtbuff.reset( new WrtBuff( offset, mode ) );
+        if( !wrtbuff ) wrtbuff.reset( new WrtBuff( *objcfg, offset, mode ) );
 
         while( wrtsize > 0 )
         {
@@ -236,9 +234,9 @@ namespace XrdEc
           if( wrtbuff->Complete() )
           {
             wrthandler.IncCnt();
-            WriteBlock( objname, signature, plgr, std::move( *wrtbuff ),  &wrthandler );
+            WriteBlock( *objcfg, signature, plgr, std::move( *wrtbuff ),  &wrthandler );
             WrtMode  mode = offset < objsize ? WrtMode::Overwrite : WrtMode::New;
-            wrtbuff.reset( new WrtBuff( offset, mode ) );
+            wrtbuff.reset( new WrtBuff( *objcfg, offset, mode ) );
           }
         }
 
@@ -253,7 +251,7 @@ namespace XrdEc
         {
           wrtbuff->Encode();
           wrthandler.IncCnt();
-          WriteBlock( objname, signature, plgr, std::move( *wrtbuff ), &wrthandler );
+          WriteBlock( *objcfg, signature, plgr, std::move( *wrtbuff ), &wrthandler );
           wrtbuff.reset( 0 );
         }
       }
@@ -267,19 +265,18 @@ namespace XrdEc
       {
         if( size < objsize )
         {
-          Config &cfg = Config::Instance();
-          uint64_t lastblk  = size - ( size % cfg.datasize );
+          uint64_t lastblk  = size - ( size % objcfg->datasize );
           uint32_t lastsize = size - lastblk;
-          TruncateHandler* hndlr = new TruncateHandler( objsize, size, handler );
+          TruncateHandler* hndlr = new TruncateHandler( *objcfg, objsize, size, handler );
 
           if( lastsize > 0 )
           {
-            TruncateBlock( objname, signature, plgr, lastblk / cfg.datasize, lastsize, hndlr );
-            lastblk += cfg.datasize;
+            TruncateBlock( *objcfg, signature, plgr, lastblk / objcfg->datasize, lastsize, hndlr );
+            lastblk += objcfg->datasize;
           }
 
-          for( uint64_t blk = lastblk; blk < objsize; blk += cfg.datasize )
-            RemoveBlock( objname, signature, plgr, blk / cfg.datasize, hndlr );
+          for( uint64_t blk = lastblk; blk < objsize; blk += objcfg->datasize )
+            RemoveBlock( *objcfg, signature, plgr, blk / objcfg->datasize, hndlr );
 
           objsize = size;
         }
@@ -297,8 +294,7 @@ namespace XrdEc
 
       void HandleSparseWrite( uint64_t offset )
       {
-        Config &cfg = Config::Instance();
-        uint64_t lastblk = offset - ( offset % cfg.datasize );
+        uint64_t lastblk = offset - ( offset % objcfg->datasize );
 
         // check if the data go to the current write-buffer
         if( wrtbuff && wrtbuff->GetOffset() == lastblk )
@@ -312,17 +308,17 @@ namespace XrdEc
         if( wrtbuff && !wrtbuff->Empty() )
         {
           // update object size
-          objsize = wrtbuff->GetOffset() + cfg.datasize;
-          wrtbuff->Pad( cfg.datasize - wrtbuff->GetBlkSize() );
+          objsize = wrtbuff->GetOffset() + objcfg->datasize;
+          wrtbuff->Pad( objcfg->datasize - wrtbuff->GetBlkSize() );
           // we need to flush the current write-buffer
           Flush();
         }
-        wrtbuff.reset( new WrtBuff( offset, WrtMode::New ) );
+        wrtbuff.reset( new WrtBuff( *objcfg, offset, WrtMode::New ) );
 
-        for( uint64_t blk = objsize; blk < lastblk; blk += cfg.datasize )
+        for( uint64_t blk = objsize; blk < lastblk; blk += objcfg->datasize )
         {
           wrthandler.IncCnt();
-          CreateEmptyBlock( objname, signature, plgr, blk / cfg.datasize, &wrthandler );
+          CreateEmptyBlock( objname, signature, plgr, blk / objcfg->datasize, &wrthandler );
         }
 
         // if the new data are not aligned with the block size we need to pad them
@@ -333,6 +329,7 @@ namespace XrdEc
       uint64_t                 objsize;
       std::string              objname;
       std::string              signature;
+      std::unique_ptr<ObjCfg>  objcfg;
 
       placement_group          plgr;
 

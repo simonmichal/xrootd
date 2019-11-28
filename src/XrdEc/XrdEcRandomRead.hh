@@ -9,7 +9,7 @@
 #define SRC_XRDEC_XRDECRANDOMREAD_HH_
 
 #include "XrdEc/XrdEcUtilities.hh"
-#include "XrdEc/XrdEcConfig.hh"
+#include "XrdEc/XrdEcObjCfg.hh"
 #include "XrdCl/XrdClXRootDResponses.hh"
 
 #include <string>
@@ -21,21 +21,25 @@ namespace XrdEc
   {
     public:
 
-      RandRdHandler( uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler ) : offset( offset ),
-                                                                                                       buffer( buffer ),
-                                                                                                       handler( handler ),
-                                                                                                       bytesrd( 0 ),
-                                                                                                       count( 0 )
+      RandRdHandler( const ObjCfg           &objcfg,
+                     uint64_t                offset,
+                     uint32_t                size,
+                     char                   *buffer,
+                     XrdCl::ResponseHandler *handler ) : objcfg( objcfg ),
+                                                         offset( offset ),
+                                                         buffer( buffer ),
+                                                         handler( handler ),
+                                                         bytesrd( 0 ),
+                                                         count( 0 )
       {
-        Config &cfg = Config::Instance();
-        uint64_t firstblk  = offset / cfg.datasize;
-        uint64_t blkoff    = offset - firstblk * cfg.datasize;
-        uint32_t nbrd      = cfg.datasize - blkoff;
+        uint64_t firstblk  = offset / objcfg.datasize;
+        uint64_t blkoff    = offset - firstblk * objcfg.datasize;
+        uint32_t nbrd      = objcfg.datasize - blkoff;
         if( nbrd ) ++count;
         if( size > nbrd ) size -= nbrd;
         else size = 0;
-        count += size / cfg.datasize;
-        if( size % cfg.datasize ) ++count;
+        count += size / objcfg.datasize;
+        if( size % objcfg.datasize ) ++count;
       }
 
       void HandleResponse( XrdCl::XRootDStatus *status, XrdCl::AnyObject *response )
@@ -84,6 +88,7 @@ namespace XrdEc
 
     private:
 
+      ObjCfg                  objcfg;
       uint64_t                offset;
       char                   *buffer;
       XrdCl::ResponseHandler *handler;
@@ -92,7 +97,7 @@ namespace XrdEc
       std::mutex              mtx;
   };
 
-  void ReadFromBlock( const std::string       &obj,
+  void ReadFromBlock( const ObjCfg            &objcfg,
                       const std::string       &sign,
                       const placement_group   &plgr,
                       uint64_t                 offset,

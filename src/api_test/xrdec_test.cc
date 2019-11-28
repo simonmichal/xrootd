@@ -30,9 +30,9 @@
 #include <random>
 #include <functional>
 #include <limits>
-#include <random>
 #include <thread>
 #include <future>
+#include <cstdio>
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -44,12 +44,11 @@
 #include <sys/stat.h>
 #include <uuid/uuid.h>
 #include <stdlib.h>
-#include <random>
+#include <sys/stat.h>
 
 #include "../XrdEc/XrdEcDataObject.hh"
 
-//#include "XrdEc/XrdEcUtilities.hh"
-//#include "XrdEc/XrdEcDataStore.hh"
+#include "XrdEc/XrdEcObjCfg.hh"
 
 
 #include "XrdOuc/XrdOucEnv.hh"
@@ -57,8 +56,147 @@
 using namespace XrdCl;
 using namespace XrdEc;
 
+const std::string objname( "0000000000000001-isa-12:4-4.0" );
+
+static ObjCfg objcfg( objname ); // the configuration we use !!!
+
+placement_group& GetPlacement()
+{
+  static placement_group plgr;
+  if( plgr.empty() )
+  {
+    for( size_t i = 0; i < 16; ++i )
+    {
+      std::string url = "file://localhost/data/dir" + std::to_string( i );
+      plgr.emplace_back( url, rw );
+    }
+  }
+  return plgr;
+}
+
+std::default_random_engine& GetGenerator()
+{
+  static unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+  static std::default_random_engine generator( seed );
+  static bool print = false;
+  if( !print )
+  {
+    std::cout << __func__ << " : seed = " << seed << std::endl;
+    print = true;
+  }
+  return generator;
+}
+
+inline std::string SelectChunk( uint64_t offset, uint32_t size )
+{
+  uint64_t blkfst = offset / objcfg.datasize;
+  uint64_t blklst = ( offset + size ) / objcfg.datasize;
+  if( ( offset + size ) % objcfg.datasize )
+    blklst -= 1;
+
+  uint64_t blknb;
+  if( blklst <= blkfst ) blknb = blkfst;
+  else
+  {
+    std::uniform_int_distribution<size_t> blkdistr( blkfst, blklst );
+    blknb = blkdistr( GetGenerator() );
+  }
+
+  std::uniform_int_distribution<size_t> chdistr( 0, objcfg.nbchunks - 1 );
+  uint8_t chnb = chdistr( GetGenerator() );
+  std::string blkname = objname + '.' + std::to_string( blknb );
+  placement_t placement = GeneratePlacement( objcfg, blkname, GetPlacement(), true );
+  XrdCl::URL url( placement[chnb] + '/' + blkname );
+
+  return url.GetURL();
+}
+
+bool RemoveChunk( const XrdCl::URL &url )
+{
+  std::cout << __func__ << " : url = " << url.GetPath() << std::endl;
+
+  int rc = remove( url.GetPath().c_str() );
+  if( rc != 0 && errno != ENOENT )
+  {
+    std::cout << strerror( errno ) << std::endl;
+    return false;
+  }
+
+  return true;
+}
+
+bool RemoveChunk( uint64_t offset, uint32_t size )
+{
+  return RemoveChunk( SelectChunk( offset, size ) );
+}
+
+bool RejectAccess( uint64_t offset, uint32_t size )
+{
+  XrdCl::URL url = SelectChunk( offset, size );
+  RemoveChunk( url );
+
+  std::cout << __func__ << " : url = " << url.GetPath() << std::endl;
+
+  std::ofstream chunk( url.GetPath() );
+  chunk.flush();
+
+  mode_t mode;
+  memset( &mode, 0, sizeof( mode ) );
+  int rc = chmod( url.GetPath().c_str(), mode );
+  if( rc != 0 )
+  {
+    std::cout << strerror( errno ) << std::endl;
+    return false;
+  }
+
+  return true;
+}
+
+bool CorruptChunk( uint64_t offset, uint32_t size )
+{
+  std::string str = "some random string that does not appear in bible ;-)";
+  XrdCl::URL url = SelectChunk( offset, size );
+
+  std::cout << __func__ << " : url = " << url.GetPath() << std::endl;
+
+  std::ofstream chunk( url.GetPath() );
+  chunk.write( str.c_str(), str.size() );
+  chunk.flush();
+  return true;
+}
+
+bool DoError( size_t upper )
+{
+  static std::uniform_int_distribution<size_t> prob( 1, upper );
+  size_t randval = prob( GetGenerator() );
+  return ( randval > upper - 1 );
+}
+
+bool RandomError( uint64_t offset, uint32_t size )
+{
+  enum ErrType
+  {
+    ACCESS,
+    REMOVE,
+    CORRUPT
+  };
+
+  std::uniform_int_distribution<size_t> prob( ACCESS, CORRUPT );
+  size_t randval = prob( GetGenerator() );
+
+  switch( randval )
+  {
+    case ACCESS : return RejectAccess( offset, size );
+    case REMOVE : return RemoveChunk( offset, size );
+    case CORRUPT: return CorruptChunk( offset, size );
+    default: return false;
+  }
+}
+
 bool WriteBible( DataObject &store, char *bigbuff, size_t biblesize )
 {
+  // TODO to test errors change ownership of one directory !!!
+
   char    *wrtbuff = bigbuff;
   size_t   wrtsize = biblesize;
   uint64_t wrtoff = 0;
@@ -66,6 +204,7 @@ bool WriteBible( DataObject &store, char *bigbuff, size_t biblesize )
   {
     uint32_t chsize = 1024 * 3;
     if( chsize > wrtsize ) chsize = wrtsize;
+
     SyncResponseHandler handler;
     store.StrmWrite( wrtoff, chsize, wrtbuff, &handler );
 
@@ -114,6 +253,13 @@ bool ReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint32_t chsi
 
   while( rdsize < biblesize )
   {
+    if( DoError( 1000 ) )
+      if( !RandomError( offset, chsize ) )
+      {
+        std::cout << "RandomError failed!" << std::endl;
+        return false;
+      }
+
     char rdbuff[chsize];
     SyncResponseHandler handler2;
     store.StrmRead( offset, chsize, rdbuff, &handler2 );
@@ -130,7 +276,22 @@ bool ReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint32_t chsi
     ChunkInfo *info = 0;
     resp->Get( info );
     uint32_t length = info->length;
+    uint32_t explen  = length;
+    if( offset + explen > biblesize ) explen = biblesize - offset;
+    uint32_t bytesrd = length;
     delete resp;
+
+    if( bytesrd != explen )
+    {
+      std::cout << "Bytes read mismatch : expected = " << explen << ", got = " << bytesrd << std::endl;
+
+      std::cout << "\n\nReference:" << std::endl;
+      std::cout << std::string( biblechunk, explen ) << std::endl;
+      std::cout << "\n\nData read:" << std::endl;
+      std::cout << std::string( rdbuff, bytesrd ) << std::endl;
+
+      return false;
+    }
 
     bool buffeq = std::equal( rdbuff, rdbuff + length, biblechunk );
 //    std::cout << "Chunk " << chnb << " : " << ( buffeq ? "EQUAL" : "NOT EQUAL" ) << std::endl;
@@ -196,6 +357,13 @@ bool RandReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint64_t 
 {
   char     buffer[length];
 
+  if( DoError( 1000 ) )
+    if( !RandomError( offset, length ) )
+    {
+      std::cout << "RandomError failed!" << std::endl;
+      return false;
+    }
+
   XrdCl::SyncResponseHandler handler;
   store.RandomRead( offset, length, buffer, &handler );
   handler.WaitForResponse();
@@ -216,24 +384,30 @@ bool RandReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint64_t 
   uint32_t bytesrd = info->length;
   delete resp;
 
+  auto begin = bigbuff + offset;
+  auto end   = begin + bytesrd;
+
   if( bytesrd != explen )
   {
     std::cout << "Bytes read mismatch : expected = " << explen << ", got = " << bytesrd << std::endl;
+
+    std::cout << "\n\noffset = " << offset << ", length = " << length << std::endl;
+
+    std::cout << "\n\nReference:" << std::endl;
+    std::cout << std::string( begin, explen ) << std::endl;
+    std::cout << "\n\nData read:" << std::endl;
+    std::cout << std::string( buffer, bytesrd ) << std::endl;
+
     return false;
   }
-
-  auto begin = bigbuff + offset;
-  auto end   = begin + bytesrd;
 
   bool buffeq = std::equal( begin, end, buffer );
   if( !buffeq )
   {
-    std::cout << "begin[0] = " << int( buffer[0] ) << std::endl;
-
     std::cout << "\n\nReference:" << std::endl;
-    std::cout << std::string( begin, 4 * 1024 ) << std::endl;
+    std::cout << std::string( begin, bytesrd ) << std::endl;
     std::cout << "\n\nData read:" << std::endl;
-    std::cout << std::string( buffer, 4 * 1024 ) << std::endl;
+    std::cout << std::string( buffer, bytesrd ) << std::endl;
     std::cout << "Bytes read don't match the reference!" << std::endl;
     return false;
   }
@@ -276,45 +450,33 @@ bool RandReadTestChunk_o1280_l8192( DataObject &store, char *bigbuff, size_t bib
 
 bool RandTestRandomReadBigChunk( DataObject &store, char *bigbuff, size_t biblesize )
 {
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine generator( seed );
   std::uniform_int_distribution<size_t> offdistr( 0, biblesize );
-  uint64_t offset = offdistr( generator );
+  uint64_t offset = offdistr( GetGenerator() );
   std::uniform_int_distribution<size_t> lendistr( offset, biblesize + 1024 * 6 );
-  uint32_t length = lendistr( generator );
-  std::cout << "RandTestRandomReadBigChunk : seed = " << seed << std::endl;
+  uint32_t length = lendistr( GetGenerator() );
   return RandReadTest( store, bigbuff, biblesize, offset, length );
 }
 
 bool RandTestRandomReadSmallChunk( DataObject &store, char *bigbuff, size_t biblesize )
 {
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine generator( seed );
   std::uniform_int_distribution<size_t> offdistr( 0, biblesize - 4 * 4 * 1024 );
-  uint64_t offset = offdistr( generator );
+  uint64_t offset = offdistr( GetGenerator() );
   std::uniform_int_distribution<size_t> lendistr( 256, 4 * 4 * 1024 );
-  uint32_t length = lendistr( generator );
-  std::cout << "RandTestRandomReadSmallChunk : seed = " << seed << std::endl;
+  uint32_t length = lendistr( GetGenerator() );
   return RandReadTest( store, bigbuff, biblesize, offset, length );
 }
 
 bool ReadTestRandomChunkBig( DataObject &store, char *bigbuff, size_t biblesize )
 {
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine generator( seed );
   std::uniform_int_distribution<size_t> distribution( 512, biblesize );
-  uint32_t chsize = distribution( generator );
-  std::cout << "ReadTestRandomChunkBig : seed = " << seed << std::endl;
+  uint32_t chsize = distribution( GetGenerator() );
   return ReadTest( store, bigbuff, biblesize, chsize );
 }
 
 bool ReadTestRandomChunkSmall( DataObject &store, char *bigbuff, size_t biblesize )
 {
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::default_random_engine generator( seed );
   std::uniform_int_distribution<size_t> distribution( 256, 4 * 4 * 1024  );
-  uint32_t chsize = distribution( generator );
-  std::cout << "ReadTestRandomChunkSmall : seed = " << seed << std::endl;
+  uint32_t chsize = distribution( GetGenerator() );
   return ReadTest( store, bigbuff, biblesize, chsize );
 }
 
@@ -351,8 +513,6 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   //
   //---------------------------------------------------------------------
 
-  Config &cfg = Config::Instance();
-
   DataObject object( "SparseFileTest.txt", biblesize );
 
   //---------------------------------------------------------------------
@@ -369,7 +529,7 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   // prepare for writing
   //---------------------------------------------------------------------
 
-  uint64_t refsize = cfg.datasize * 8;
+  uint64_t refsize = objcfg.datasize * 8;
   char reference[refsize];
   memset( reference, 0, refsize );
 
@@ -382,7 +542,7 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
 
   // write first data block from the bible
   SyncResponseHandler handler;
-  object.StrmWrite( offset, cfg.datasize, bigbuff, &handler );
+  object.StrmWrite( offset, objcfg.datasize, bigbuff, &handler );
   handler.WaitForResponse();
   XRootDStatus *status = handler.GetStatus();
   if( !status->IsOK() )
@@ -393,19 +553,19 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   delete status;
 
   // now do the same with the reference buffer
-  memcpy( reference + refcursor, bigbuff, cfg.datasize );
+  memcpy( reference + refcursor, bigbuff, objcfg.datasize );
 
-  offset    += cfg.datasize;
-  bigbuff   += cfg.datasize;
-  refcursor += cfg.datasize;
+  offset    += objcfg.datasize;
+  bigbuff   += objcfg.datasize;
+  refcursor += objcfg.datasize;
 
   //---------------------------------------------------------------------
   // write the second block at offset 2 * datasize
   //---------------------------------------------------------------------
 
-  offset += cfg.datasize;
+  offset += objcfg.datasize;
   SyncResponseHandler handler2;
-  object.StrmWrite( offset, cfg.datasize, bigbuff, &handler2 );
+  object.StrmWrite( offset, objcfg.datasize, bigbuff, &handler2 );
   handler2.WaitForResponse();
   status = handler2.GetStatus();
   if( !status->IsOK() )
@@ -416,20 +576,20 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   delete status;
 
   // now do the same with the reference buffer
-  refcursor += cfg.datasize;
-  memcpy( reference + refcursor, bigbuff, cfg.datasize );
+  refcursor += objcfg.datasize;
+  memcpy( reference + refcursor, bigbuff, objcfg.datasize );
 
-  offset    += cfg.datasize;
-  bigbuff   += cfg.datasize;
-  refcursor += cfg.datasize;
+  offset    += objcfg.datasize;
+  bigbuff   += objcfg.datasize;
+  refcursor += objcfg.datasize;
 
   //---------------------------------------------------------------------
   // write 1/2 of the third block at offset 4.5 * datasize
   //---------------------------------------------------------------------
 
-  offset += 1.5 * cfg.datasize;
+  offset += 1.5 * objcfg.datasize;
   SyncResponseHandler handler3;
-  object.StrmWrite( offset, cfg.datasize * 0.5, bigbuff, &handler3 );
+  object.StrmWrite( offset, objcfg.datasize * 0.5, bigbuff, &handler3 );
   handler3.WaitForResponse();
   status = handler3.GetStatus();
   if( !status->IsOK() )
@@ -440,19 +600,19 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   delete status;
 
   // now do the same with the reference buffer
-  refcursor += 1.5 * cfg.datasize;
-  memcpy( reference + refcursor, bigbuff, 0.5 * cfg.datasize );
+  refcursor += 1.5 * objcfg.datasize;
+  memcpy( reference + refcursor, bigbuff, 0.5 * objcfg.datasize );
 
-  offset    += 0.5 * cfg.datasize;
-  bigbuff   += int( 0.5 * cfg.datasize );
-  refcursor += 0.5 * cfg.datasize;
+  offset    += 0.5 * objcfg.datasize;
+  bigbuff   += int( 0.5 * objcfg.datasize );
+  refcursor += 0.5 * objcfg.datasize;
 
   //---------------------------------------------------------------------
   // write 1/4 of the fourth block at offset 5 * datasize
   //---------------------------------------------------------------------
 
   SyncResponseHandler handler4;
-  object.StrmWrite( offset, cfg.datasize * 0.25, bigbuff, &handler4 );
+  object.StrmWrite( offset, objcfg.datasize * 0.25, bigbuff, &handler4 );
   handler4.WaitForResponse();
   status = handler4.GetStatus();
   if( !status->IsOK() )
@@ -463,19 +623,19 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   delete status;
 
   // now do the same with the reference buffer
-  memcpy( reference + refcursor, bigbuff, 0.25 * cfg.datasize );
+  memcpy( reference + refcursor, bigbuff, 0.25 * objcfg.datasize );
 
-  offset    += 0.25 * cfg.datasize;
-  bigbuff   += int( 0.25 * cfg.datasize );
-  refcursor += 0.25 * cfg.datasize;
+  offset    += 0.25 * objcfg.datasize;
+  bigbuff   += int( 0.25 * objcfg.datasize );
+  refcursor += 0.25 * objcfg.datasize;
 
   //---------------------------------------------------------------------
   // write subsequent 1/4 of the fourth block at offset 5.75 * datasize
   //---------------------------------------------------------------------
 
-  offset += 0.5 * cfg.datasize;
+  offset += 0.5 * objcfg.datasize;
   SyncResponseHandler handler5;
-  object.StrmWrite( offset, cfg.datasize * 0.25, bigbuff, &handler5 );
+  object.StrmWrite( offset, objcfg.datasize * 0.25, bigbuff, &handler5 );
   handler5.WaitForResponse();
   status = handler5.GetStatus();
   if( !status->IsOK() )
@@ -486,19 +646,19 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   delete status;
 
   // now do the same with the reference buffer
-  refcursor += 0.5 * cfg.datasize;
-  memcpy( reference + refcursor, bigbuff, 0.25 * cfg.datasize );
+  refcursor += 0.5 * objcfg.datasize;
+  memcpy( reference + refcursor, bigbuff, 0.25 * objcfg.datasize );
 
-  offset    += 0.25 * cfg.datasize;
-  bigbuff   += int( 0.25 * cfg.datasize );
-  refcursor += 0.25 * cfg.datasize;
+  offset    += 0.25 * objcfg.datasize;
+  bigbuff   += int( 0.25 * objcfg.datasize );
+  refcursor += 0.25 * objcfg.datasize;
 
   //---------------------------------------------------------------------
   // write 1/2 of the fifth block at offset 6 * datasize
   //---------------------------------------------------------------------
 
   SyncResponseHandler handler6;
-  object.StrmWrite( offset, cfg.datasize * 0.5, bigbuff, &handler6 );
+  object.StrmWrite( offset, objcfg.datasize * 0.5, bigbuff, &handler6 );
   handler6.WaitForResponse();
   status = handler6.GetStatus();
   if( !status->IsOK() )
@@ -509,19 +669,19 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   delete status;
 
   // now do the same with the reference buffer
-  memcpy( reference + refcursor, bigbuff, 0.5 * cfg.datasize );
+  memcpy( reference + refcursor, bigbuff, 0.5 * objcfg.datasize );
 
-  offset    += 0.5 * cfg.datasize;
-  bigbuff   += int( 0.5 * cfg.datasize );
-  refcursor += 0.5 * cfg.datasize;
+  offset    += 0.5 * objcfg.datasize;
+  bigbuff   += int( 0.5 * objcfg.datasize );
+  refcursor += 0.5 * objcfg.datasize;
 
   //---------------------------------------------------------------------
   // write one block of data at offset 7 * datasize
   //---------------------------------------------------------------------
 
-  offset += 0.5 * cfg.datasize;
+  offset += 0.5 * objcfg.datasize;
   SyncResponseHandler handler7;
-  object.StrmWrite( offset, cfg.datasize, bigbuff, &handler7 );
+  object.StrmWrite( offset, objcfg.datasize, bigbuff, &handler7 );
   handler7.WaitForResponse();
   status = handler7.GetStatus();
   if( !status->IsOK() )
@@ -532,12 +692,12 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   delete status;
 
   // now do the same with the reference buffer
-  refcursor += 0.5 * cfg.datasize;
-  memcpy( reference + refcursor, bigbuff, cfg.datasize );
+  refcursor += 0.5 * objcfg.datasize;
+  memcpy( reference + refcursor, bigbuff, objcfg.datasize );
 
-  offset    += cfg.datasize;
-  bigbuff   += cfg.datasize;
-  refcursor += cfg.datasize;
+  offset    += objcfg.datasize;
+  bigbuff   += objcfg.datasize;
+  refcursor += objcfg.datasize;
 
   //---------------------------------------------------------------------
   // Sync to be sure everything was written correctly to disk
@@ -604,7 +764,6 @@ int main( int argc, char** argv )
   std::cout << "There we go!" << std::endl;
 
   std::string path = "bible.txt";
-
   size_t biblesize = 4047392;
   char *bigbuff = new char[biblesize + 1024]; // big buffer than can accommodate the whole bible plus bit more
   std::ifstream fs;

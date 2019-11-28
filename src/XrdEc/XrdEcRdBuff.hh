@@ -8,7 +8,7 @@
 #ifndef SRC_XRDEC_XRDECRDBUFF_HH_
 #define SRC_XRDEC_XRDECRDBUFF_HH_
 
-#include "XrdEc/XrdEcConfig.hh"
+#include "XrdEc/XrdEcObjCfg.hh"
 #include "XrdEc/XrdEcUtilities.hh"
 #include "XrdEc/XrdEcScheduleHandler.hh"
 
@@ -28,18 +28,17 @@ namespace XrdEc
 {
   class RdBuff
   {
-      friend void ReadBlock( const std::string&, const std::string&, const placement_group&, std::shared_ptr<RdBuff>&, XrdCl::ResponseHandler* );
+      friend void ReadBlock( const ObjCfg&, const std::string&, const placement_group&, std::shared_ptr<RdBuff>&, XrdCl::ResponseHandler* );
 
       friend struct StrmRdCtx;
 
     public:
 
-      RdBuff( uint64_t offset, char *buffer = 0 ) : buffer( buffer ), mine( !buffer ), ready( false )
+      RdBuff( const ObjCfg &objcfg, uint64_t offset, char *buffer = 0 ) : buffer( buffer ), mine( !buffer ), ready( false )
       {
-        Config &cfg  = Config::Instance();
-        this->offset = offset - ( offset % cfg.datasize );
-        this->size   = cfg.datasize;
-        if( !buffer ) this->buffer = new char[cfg.datasize];
+        this->offset = offset - ( offset % objcfg.datasize );
+        this->size   = objcfg.datasize;
+        if( !buffer ) this->buffer = new char[objcfg.datasize];
       }
 
       ~RdBuff()

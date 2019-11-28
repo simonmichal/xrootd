@@ -9,7 +9,7 @@
 #define SRC_XRDEC_XRDECTRUNCATE_HH_
 
 #include "XrdEc/XrdEcUtilities.hh"
-#include "XrdEc/XrdEcConfig.hh"
+#include "XrdEc/XrdEcObjCfg.hh"
 #include "XrdCl/XrdClXRootDResponses.hh"
 
 #include <mutex>
@@ -21,11 +21,10 @@ namespace XrdEc
   {
     public:
 
-      TruncateHandler( uint64_t oldsize, uint64_t newsize, XrdCl::ResponseHandler *handler ) : handler( handler ), count( 0 )
+      TruncateHandler( const ObjCfg &objcfg, uint64_t oldsize, uint64_t newsize, XrdCl::ResponseHandler *handler ) : objcfg( objcfg ), handler( handler ), count( 0 )
       {
-        Config &cfg = Config::Instance();
-        uint64_t lastblk = newsize - ( newsize % cfg.datasize );
-        for( uint64_t blk = lastblk; blk < oldsize; blk += cfg.datasize )
+        uint64_t lastblk = newsize - ( newsize % objcfg.datasize );
+        for( uint64_t blk = lastblk; blk < oldsize; blk += objcfg.datasize )
           ++count;
       }
 
@@ -54,19 +53,20 @@ namespace XrdEc
 
     private:
 
+      ObjCfg                  objcfg;
       XrdCl::ResponseHandler *handler;
       std::mutex              mtx;
       uint32_t                count;
   };
 
-  void TruncateBlock( const std::string      &obj,
+  void TruncateBlock( const ObjCfg           &objcfg,
                       const std::string      &sign,
                       const placement_group  &plgr,
                       uint64_t                blknb,
                       uint64_t                size,
                       XrdCl::ResponseHandler *handler );
 
-  void RemoveBlock( const std::string      &obj,
+  void RemoveBlock( const ObjCfg           &objcfg,
                     const std::string      &sign,
                     const placement_group  &plgr,
                     uint64_t                blknb,

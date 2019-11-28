@@ -8,7 +8,7 @@
 #include "XrdEc/XrdEcRandomRead.hh"
 #include "XrdEc/XrdEcConfig.hh"
 #include "XrdEc/XrdEcUtilities.hh"
-#include "XrdEc/XrdEcConfig.hh"
+#include "XrdEc/XrdEcObjCfg.hh"
 #include "XrdEc/XrdEcReadBlock.hh"
 #include "XrdEc/XrdEcLogger.hh"
 
@@ -123,12 +123,14 @@ namespace
 
   struct StrpRdCtx
   {
-      StrpRdCtx( std::shared_ptr<RandRdCtx> &ctx,
+      StrpRdCtx( const XrdEc::ObjCfg        &objcfg,
+                 std::shared_ptr<RandRdCtx> &ctx,
                  uint8_t                     strpnb,
                  uint64_t                    offset,
                  uint32_t                    size,
-                 char                       *buffer ) : ctx( ctx ),
-                                                        rdbuff( offset, size, buffer, XrdEc::Config::Instance().chunksize ),
+                 char                       *buffer ) : objcfg( objcfg ),
+                                                        ctx( ctx ),
+                                                        rdbuff( offset, size, buffer, objcfg.chunksize ),
                                                         blksize( 0 ),
                                                         strpnb( strpnb ),
                                                         chnb( 0 )
@@ -138,7 +140,7 @@ namespace
       void Handle( const XrdCl::XRootDStatus &st )
       {
         std::stringstream ss;
-        ss << "ReadStripe::Handle (" << (void*)this << ") : url = " << url << ", st = " << ( st.IsOK() ? "OK" : "FAILED" ) << ", strpnb = " << strpnb << ", chnb = " << chnb;
+        ss << "StrpRdCtx::Handle (" << (void*)this << ") : url = " << url << ", st = " << ( st.IsOK() ? "OK" : "FAILED" ) << ", strpnb = " << strpnb << ", chnb = " << chnb;
         XrdEc::Logger &log = XrdEc::Logger::Instance();
         log.Entry( ss.str() );
 
@@ -154,22 +156,22 @@ namespace
           return;
         }
 
-        XrdEc::Config &cfg = XrdEc::Config::Instance();
-        std::string calcchksum = XrdEc::CalcChecksum( (char*)rdbuff.buffer, cfg.chunksize );
+        std::string calcchksum = XrdEc::CalcChecksum( (char*)rdbuff.buffer, objcfg.chunksize );
         if( checksum != calcchksum )
         {
           ctx->Handle( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
           return;
         }
 
-        uint64_t choff  = chnb * cfg.chunksize;
+        uint64_t choff  = chnb * objcfg.chunksize;
         uint64_t chsize = blksize <= choff ? 0 : blksize - choff;
-        if( chsize > cfg.chunksize ) chsize = cfg.chunksize;
+        if( chsize > objcfg.chunksize ) chsize = objcfg.chunksize;
         rdbuff.finalize( chsize );
 
         ctx->Handle( XrdCl::XRootDStatus() );
       }
 
+      XrdEc::ObjCfg              objcfg;
       std::shared_ptr<RandRdCtx> ctx;
       read_buffer                rdbuff;
       std::string                checksum;
@@ -180,7 +182,8 @@ namespace
   };
 
 
-  static void ReadStripe( const std::string          &url,
+  static void ReadStripe( const XrdEc::ObjCfg        &objcfg,
+                          const std::string          &url,
                           uint8_t                     strpnb,
                           uint64_t                    offset,
                           uint32_t                    size,
@@ -190,13 +193,12 @@ namespace
     using namespace XrdCl;
 
     std::shared_ptr<File>      file( new File() );
-    std::shared_ptr<StrpRdCtx> strpctx( new StrpRdCtx( ctx, strpnb, offset, size, buffer ) );
+    std::shared_ptr<StrpRdCtx> strpctx( new StrpRdCtx( objcfg, ctx, strpnb, offset, size, buffer ) );
     strpctx->url = url;
 
     // Construct the pipeline
-    XrdEc::Config &cfg = XrdEc::Config::Instance();
     Pipeline rdstrp = Open( file.get(), url, OpenFlags::Read )
-                    | Parallel( Read( file.get(), 0, cfg.chunksize, strpctx->rdbuff.buffer ),
+                    | Parallel( Read( file.get(), 0, objcfg.chunksize, strpctx->rdbuff.buffer ),
                                 GetXAttr( file.get(), "xrdec.checksum" ) >> [strpctx]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) strpctx->checksum = value; },
                                 GetXAttr( file.get(), "xrdec.blksize" )  >> [strpctx]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) strpctx->blksize = std::stoull( value ); },
                                 GetXAttr( file.get(), "xrdec.strpnb")    >> [strpctx]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) strpctx->chnb = std::stoi( value ); }
@@ -210,10 +212,13 @@ namespace
 
   struct FallBackHandler : public XrdCl::ResponseHandler
   {
-      FallBackHandler( uint64_t                offset,
+      FallBackHandler( const XrdEc::ObjCfg    &objcfg,
+                       uint64_t                offset,
                        uint32_t                size,
                        char                   *buffer,
-                       XrdCl::ResponseHandler *handler ) : rdbuff( offset, size, buffer, XrdEc::Config::Instance().datasize ),
+                       XrdCl::ResponseHandler *handler ) : rdbuff( offset, size, buffer, objcfg.datasize ),
+                                                           offset( offset ),
+                                                           size( size ),
                                                            handler( handler )
       {
       }
@@ -221,12 +226,26 @@ namespace
       void HandleResponse( XrdCl::XRootDStatus *status, XrdCl::AnyObject *response )
       {
         rdbuff.finalize();
+
+        // if we were successful we might need to adjust the
+        // read size on the response (otherwise we will always
+        // report full block has been read)
+        if( status->IsOK() )
+        {
+          XrdCl::ChunkInfo *chunk = 0;
+          response->Get( chunk );
+          if( offset + size > chunk->length )
+            size = chunk->length - offset;
+          chunk->length = size;
+        }
+
         handler->HandleResponse( status, response );
         delete this;
-
       }
 
       read_buffer             rdbuff;
+      uint64_t                offset;
+      uint32_t                size;
       XrdCl::ResponseHandler *handler;
   };
 
@@ -234,19 +253,19 @@ namespace
   {
     public:
 
-      RandRdHandlerPriv( const std::string            &obj,
-                     const std::string            &sign,
-                     const XrdEc::placement_group &plgr,
-                     uint64_t                      offset,
-                     uint32_t                      size,
-                     char                         *buffer,
-                     XrdCl::ResponseHandler       *handler ) : obj( obj ),
-                                                               sign( sign ),
-                                                               plgr( plgr ),
-                                                               offset( offset ),
-                                                               size( size ),
-                                                               buffer( buffer ),
-                                                               handler( handler )
+      RandRdHandlerPriv( const XrdEc::ObjCfg          &objcfg,
+                         const std::string            &sign,
+                         const XrdEc::placement_group &plgr,
+                         uint64_t                      offset,
+                         uint32_t                      size,
+                         char                         *buffer,
+                         XrdCl::ResponseHandler       *handler ) : objcfg( objcfg ),
+                                                                   sign( sign ),
+                                                                   plgr( plgr ),
+                                                                   offset( offset ),
+                                                                   size( size ),
+                                                                   buffer( buffer ),
+                                                                   handler( handler )
     {
     }
 
@@ -259,8 +278,13 @@ namespace
           return;
         }
 
-        FallBackHandler *fbHandler = new FallBackHandler( offset, size, buffer, handler );
-        XrdEc::ReadBlock( obj, sign, plgr, offset, (char*)fbHandler->rdbuff.buffer, fbHandler );
+        uint64_t blkoff = offset % objcfg.datasize;
+        uint32_t rdsize = size;
+        if( blkoff + rdsize > objcfg.datasize )
+          rdsize = objcfg.datasize - blkoff;
+
+        FallBackHandler *fbHandler = new FallBackHandler( objcfg, blkoff, rdsize, buffer, handler );
+        XrdEc::ReadBlock( objcfg, sign, plgr, offset, (char*)fbHandler->rdbuff.buffer, fbHandler );
 
         delete status;
         delete response;
@@ -269,9 +293,9 @@ namespace
 
     private:
 
-      const std::string            &obj;
-      const std::string            &sign;
-      const XrdEc::placement_group &plgr;
+      XrdEc::ObjCfg                 objcfg;
+      const std::string             sign;
+      const XrdEc::placement_group  plgr;
       uint64_t                      offset;
       uint32_t                      size;
       char                         *buffer;
@@ -281,7 +305,7 @@ namespace
 
 namespace XrdEc
 {
-  void ReadFromBlock( const std::string       &obj,
+  void ReadFromBlock( const ObjCfg            &objcfg,
                       const std::string       &sign,
                       const placement_group   &plgr,
                       uint64_t                 offset,
@@ -289,27 +313,28 @@ namespace XrdEc
                       char                    *buffer,
                       XrdCl::ResponseHandler  *handler )
   {
-    Config   &cfg = Config::Instance();
-    uint64_t  blknb     = offset / cfg.datasize;
-    uint64_t  blkoff    = offset - blknb * cfg.datasize;
+    uint64_t  blknb     = offset / objcfg.datasize;
+    uint64_t  blkoff    = offset - blknb * objcfg.datasize;
     uint64_t  blkrdsize = size;
-    if( blkrdsize > cfg.datasize - blkoff ) blkrdsize = cfg.datasize - blkoff;
+    if( blkrdsize > objcfg.datasize - blkoff ) blkrdsize = objcfg.datasize - blkoff;
 
-    std::string objname = obj + '.' + std::to_string( blknb ) + '?' + "ost.sig=" + sign;
-    placement_t placement = GeneratePlacement( objname, plgr, false );
+    std::string blkname = objcfg.obj + '.' + std::to_string( blknb );
+    placement_t placement = GeneratePlacement( objcfg, blkname, plgr, false );
+    blkname += "?ost.sig=" + sign;
 
+    handler = new RandRdHandlerPriv( objcfg, sign, plgr, offset, size, buffer, handler );
     std::shared_ptr<RandRdCtx> ctx( new RandRdCtx( offset, size, buffer, handler ) );
     uint64_t rdnb   = 0;
-    uint8_t firstch = blkoff / cfg.chunksize;
-    uint64_t choff  = blkoff - firstch * cfg.chunksize;
+    uint8_t firstch = blkoff / objcfg.chunksize;
+    uint64_t choff  = blkoff - firstch * objcfg.chunksize;
 
     uint8_t chnb = 0;
-    for( chnb = firstch; rdnb < blkrdsize && chnb < cfg.nbchunks; ++chnb )
+    for( chnb = firstch; rdnb < blkrdsize && chnb < objcfg.nbchunks; ++chnb )
     {
-      std::string url = placement[chnb] + '/' + objname;
+      std::string url = placement[chnb] + '/' + blkname;
       uint32_t chrdsize = blkrdsize - rdnb;
-      if( chrdsize > cfg.chunksize - choff ) chrdsize = cfg.chunksize - choff;
-      ReadStripe( url, chnb, choff, chrdsize, buffer + rdnb, ctx );
+      if( chrdsize > objcfg.chunksize - choff ) chrdsize = objcfg.chunksize - choff;
+      ReadStripe( objcfg, url, chnb, choff, chrdsize, buffer + rdnb, ctx );
       choff      = 0;
       rdnb      += chrdsize;
     }

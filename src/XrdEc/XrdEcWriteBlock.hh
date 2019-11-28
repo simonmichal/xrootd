@@ -8,21 +8,20 @@
 #ifndef SRC_XRDEC_XRDECWRITEBLOCK_HH_
 #define SRC_XRDEC_XRDECWRITEBLOCK_HH_
 
+#include "XrdEc/XrdEcObjCfg.hh"
 #include "XrdEc/XrdEcUtilities.hh"
-#include <string>
-
 
 namespace XrdEc
 {
   class WrtBuff;
 
-  void WriteBlock( const std::string      &obj,
+  void WriteBlock( const ObjCfg           &objcfg,
                    const std::string      &sign,
                    const placement_group  &plgr,
                    WrtBuff               &&wrtbuff,
                    XrdCl::ResponseHandler *handler );
 
-  void CreateEmptyBlock( const std::string      &obj,
+  void CreateEmptyBlock( const ObjCfg           &objcfg,
                          const std::string      &sign,
                          const placement_group  &plgr,
                          uint64_t                blknb,

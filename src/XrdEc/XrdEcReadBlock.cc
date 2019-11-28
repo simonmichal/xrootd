@@ -7,6 +7,7 @@
 
 #include "XrdEc/XrdEcReadBlock.hh"
 #include "XrdEc/XrdEcRdBuff.hh"
+#include "XrdEc/XrdEcConfig.hh"
 #include "XrdEc/XrdEcLogger.hh"
 
 #include "XrdCl/XrdClFileOperations.hh"
@@ -19,25 +20,23 @@ namespace XrdEc
 {
   struct StrmRdCtx
   {
-      StrmRdCtx( std::shared_ptr<RdBuff> &rdbuff, uint8_t nburl, XrdCl::ResponseHandler *handler ) :
-                   nbnotfound( 0 ), nbok( 0 ), nberr( 0 ), nburls( nburl ), rdbuff( rdbuff ), userHandler( handler )
+      StrmRdCtx( const ObjCfg &objcfg, std::shared_ptr<RdBuff> &rdbuff, uint8_t nburl, XrdCl::ResponseHandler *handler ) :
+                   objcfg( objcfg ), nbnotfound( 0 ), nbok( 0 ), nberr( 0 ), nburls( nburl ), rdbuff( rdbuff ), userHandler( handler )
       {
-        XrdEc::Config &cfg = XrdEc::Config::Instance();
+        memset( rdbuff->buffer, 0, objcfg.datasize );
+        paritybuff.reset( new char[objcfg.paritysize] );
+        memset( paritybuff.get(), 0, objcfg.paritysize );
 
-        memset( rdbuff->buffer, 0, cfg.datasize );
-        paritybuff.reset( new char[cfg.paritysize] );
-        memset( paritybuff.get(), 0, cfg.paritysize );
-
-        stripes.reserve( cfg.nbchunks );
-        for( uint8_t i = 0; i < cfg.nbdata; ++i )
-          stripes.emplace_back( rdbuff->buffer + i * cfg.chunksize, false );
-        for( uint8_t i = 0; i < cfg.nbparity; ++i )
-          stripes.emplace_back( paritybuff.get() + i * cfg.chunksize, false );
+        stripes.reserve( objcfg.nbchunks );
+        for( uint8_t i = 0; i < objcfg.nbdata; ++i )
+          stripes.emplace_back( rdbuff->buffer + i * objcfg.chunksize, false );
+        for( uint8_t i = 0; i < objcfg.nbparity; ++i )
+          stripes.emplace_back( paritybuff.get() + i * objcfg.chunksize, false );
       }
 
       void NotFound()
       {
-        std::unique_lock<std::mutex> lck( mtx );
+        std::unique_lock<std::recursive_mutex> lck( mtx );
         ++nbnotfound;
 
         std::stringstream ss;
@@ -45,13 +44,12 @@ namespace XrdEc
         Logger &log = Logger::Instance();
         log.Entry( ss.str() );
 
-        XrdEc::Config &cfg = XrdEc::Config::Instance();
-        if( nbnotfound > nburls - cfg.nbchunks ) OnError();
+        if( nbnotfound > nburls - objcfg.nbchunks ) OnError();
       }
 
       void OnError()
       {
-        std::unique_lock<std::mutex> lck( mtx );
+        std::unique_lock<std::recursive_mutex> lck( mtx );
         ++nberr;
 
         std::stringstream ss;
@@ -59,8 +57,7 @@ namespace XrdEc
         Logger &log = Logger::Instance();
         log.Entry( ss.str() );
 
-        XrdEc::Config &cfg = XrdEc::Config::Instance();
-        if( nberr > cfg.paritysize )
+        if( nberr > objcfg.paritysize )
         {
           XrdCl::ResponseHandler *handler = userHandler;
           userHandler = 0;
@@ -74,7 +71,7 @@ namespace XrdEc
 
       void OnSuccess( char *buffer, uint32_t size, uint8_t strpnb, uint32_t blksize )
       {
-        std::unique_lock<std::mutex> lck( mtx );
+        std::unique_lock<std::recursive_mutex> lck( mtx );
         ++nbok;
 
         std::stringstream ss;
@@ -90,16 +87,16 @@ namespace XrdEc
         memcpy( stripes[strpnb].buffer, buffer, size );
         stripes[strpnb].valid = true;
 
-        Config &cfg = Config::Instance();
-        if( nbok == cfg.nbdata )
+        if( nbok == objcfg.nbdata )
         {
           // check if there are missing data chunks
-          for( uint8_t i = 0; i < cfg.nbdata; ++i )
+          for( uint8_t i = 0; i < objcfg.nbdata; ++i )
             if( !( stripes[i].valid ) )
             {
               // there is at least one missing data chunk
               // so we need to recompute the missing ones
-              cfg.redundancy.compute( stripes ); // TODO it throws !!!
+              Config &cfg = Config::Instance();
+              cfg.GetRedundancy( objcfg ).compute( stripes ); // TODO it throws !!!
               break;
             }
 
@@ -122,6 +119,7 @@ namespace XrdEc
         }
       }
 
+      ObjCfg                               objcfg;
       uint8_t                              nbnotfound;
       uint8_t                              nbok;
       uint8_t                              nberr;
@@ -134,7 +132,7 @@ namespace XrdEc
       stripes_t                            stripes;
 
       XrdCl::ResponseHandler*              userHandler;
-      std::mutex                           mtx;
+      std::recursive_mutex                 mtx;
   };
 }
 
@@ -144,11 +142,10 @@ namespace
 
   struct StrpData
   {
-      StrpData( std::shared_ptr<StrmRdCtx> &ctx ) : notfound( false ), size( 0 ), blksize( 0 ), strpnb( 0 ), ctx( ctx )
+      StrpData( const ObjCfg &objcfg, std::shared_ptr<StrmRdCtx> &ctx ) : objcfg( objcfg ), notfound( false ), size( 0 ), blksize( 0 ), strpnb( 0 ), ctx( ctx )
       {
-        XrdEc::Config &cfg = XrdEc::Config::Instance();
-        buffer.reset( new char[cfg.chunksize] );
-        memset( buffer.get(), 0, XrdEc::Config::Instance().chunksize );
+        buffer.reset( new char[objcfg.chunksize] );
+        memset( buffer.get(), 0, objcfg.chunksize );
       }
 
       void Returned( bool ok )
@@ -170,11 +167,11 @@ namespace
 
       bool ValidateChecksum()
       {
-        Config &cfg = Config::Instance();
-        std::string checkSum = CalcChecksum( buffer.get(), cfg.chunksize );
+        std::string checkSum = CalcChecksum( buffer.get(), objcfg.chunksize );
         return checkSum == checksum;
       }
 
+      ObjCfg                     objcfg;
       bool                       notfound;
       std::unique_ptr<char[]>    buffer; // we cannot use RdBuff/user-buffer because we don't know which file contains witch chunk
       uint32_t                   size;
@@ -184,7 +181,8 @@ namespace
       std::shared_ptr<StrmRdCtx> ctx;
   };
 
-  static void ReadStripe( const std::string          &url,
+  static void ReadStripe( const ObjCfg               &objcfg,
+                          const std::string          &url,
                           std::shared_ptr<StrmRdCtx> &ctx )
   {
     using namespace XrdCl;
@@ -194,14 +192,13 @@ namespace
     Logger &log = Logger::Instance();
     log.Entry( ss.str() );
 
-    Config &cfg = Config::Instance();
-    std::unique_lock<std::mutex> lck( ctx->mtx );
+    std::unique_lock<std::recursive_mutex> lck( ctx->mtx );
     std::shared_ptr<File> file( new File() );
-    std::shared_ptr<StrpData> strpdata( new StrpData( ctx ) );
+    std::shared_ptr<StrpData> strpdata( new StrpData( objcfg, ctx ) );
 
     // Construct the pipeline
     Pipeline rdstrp = Open( file.get(), url, OpenFlags::Read ) >> [strpdata]( XRootDStatus &st ){ strpdata->notfound = ( !st.IsOK() && ( st.code == errErrorResponse ) && ( st.errNo == kXR_NotFound ) ); }
-                    | Parallel( Read( file.get(), 0, cfg.chunksize, strpdata->buffer.get() ) >> [strpdata]( XRootDStatus &st, ChunkInfo &chunk ){ if( st.IsOK() ) strpdata->size = chunk.length; },
+                    | Parallel( Read( file.get(), 0, objcfg.chunksize, strpdata->buffer.get() ) >> [strpdata]( XRootDStatus &st, ChunkInfo &chunk ){ if( st.IsOK() ) strpdata->size = chunk.length; },
                                 GetXAttr( file.get(), "xrdec.checksum" ) >> [strpdata]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) strpdata->checksum = value; },
                                 GetXAttr( file.get(), "xrdec.blksize" )  >> [strpdata]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) strpdata->blksize = std::stoull( value ); },
                                 GetXAttr( file.get(), "xrdec.strpnb")    >> [strpdata]( XRootDStatus &st, std::string &value ){ if( st.IsOK() ) strpdata->strpnb = std::stoi( value ); }
@@ -218,10 +215,8 @@ namespace XrdEc
   class AcrossBlkRdHandler : public XrdCl::ResponseHandler
   {
     public:
-      AcrossBlkRdHandler( uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler ) : offset( offset ), size( size ), buffer( buffer), nbrd( 0 ), nbreq( 0 ), handler( handler ), failed( false )
+      AcrossBlkRdHandler( const ObjCfg &objcfg, uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler ) : objcfg( objcfg ), offset( offset ), size( size ), buffer( buffer), nbrd( 0 ), nbreq( 0 ), handler( handler ), failed( false )
       {
-        Config &cfg = Config::Instance();
-
         // Note: the number of requests this handler will need to handle equals to the
         //       number of blocks one needs to read in order to satisfy the read request.
 
@@ -233,12 +228,12 @@ namespace XrdEc
         }
 
         // check if we are aligned with our block size
-        if( offset % cfg.datasize )
+        if( offset % objcfg.datasize )
         {
           // count the first block we will be reading from
           ++nbreq;
           // the offset of the next block
-          uint64_t nextblk = offset - ( offset % cfg.datasize ) + cfg.datasize;
+          uint64_t nextblk = offset - ( offset % objcfg.datasize ) + objcfg.datasize;
           // maximum number of bytes we can read from the block
           // containing the initial offset
           uint32_t maxrdnb = nextblk - offset;
@@ -252,7 +247,7 @@ namespace XrdEc
         while( size > 0 )
         {
           ++nbreq;
-          if( size > cfg.datasize ) size -= cfg.datasize;
+          if( size > objcfg.datasize ) size -= objcfg.datasize;
           else size = 0;
         }
       }
@@ -303,9 +298,6 @@ namespace XrdEc
         // If the read was not aligned with block size
         // we might need to copy some data from the first
         // and last block!!!
-
-        Config &cfg = Config::Instance();
-
         XrdCl::ChunkInfo *chunk = 0;
         rsp->Get( chunk );
 
@@ -321,7 +313,7 @@ namespace XrdEc
           memcpy( buffer, (char*)chunk->buffer + rspoff, rspsz );
           nbrd += rspsz;
         }
-        else if( chunk->offset + cfg.datasize > offset + size) // we are always trying to read the full block
+        else if( chunk->offset + objcfg.datasize > offset + size) // we are always trying to read the full block
         {
           // the block ends after the actual read size,
           // hence it has to be the last block
@@ -358,6 +350,7 @@ namespace XrdEc
 
     private:
 
+      ObjCfg                  objcfg;
       uint64_t                offset;
       uint32_t                size;
       char                   *buffer;
@@ -368,49 +361,45 @@ namespace XrdEc
       bool                    failed;
   };
 
-  XrdCl::ResponseHandler* GetRdHandler( uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
+  XrdCl::ResponseHandler* GetRdHandler( const ObjCfg &objcfg, uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
   {
-    Config &cfg = Config::Instance();
-
     // check if the read size and offset are aligned exactly
     // with a block, if yes we don't need a special handler
-    if( !( offset % cfg.datasize ) && size == cfg.datasize )
+    if( !( offset % objcfg.datasize ) && size == objcfg.datasize )
       return handler;
 
-    return new AcrossBlkRdHandler( offset, size, buffer, handler );
+    return new AcrossBlkRdHandler( objcfg, offset, size, buffer, handler );
   }
 
-  bool BlockAligned( uint64_t offset, uint32_t size )
+  bool BlockAligned( const ObjCfg &objcfg, uint64_t offset, uint32_t size )
   {
-    Config &cfg = Config::Instance();
-    return !( offset % cfg.datasize ) && size >= cfg.datasize;
+    return !( offset % objcfg.datasize ) && size >= objcfg.datasize;
   }
 
-  void ReadBlock( const std::string      &obj,
+  void ReadBlock( const ObjCfg           &objcfg,
                   const std::string      &sign,
                   const placement_group  &plgr,
                   uint64_t                offset,
                   char                   *buffer,
                   XrdCl::ResponseHandler *handler )
   {
-    std::shared_ptr<RdBuff> rdbuff( new RdBuff( offset, buffer ) );
-    ReadBlock( obj, sign, plgr, rdbuff, handler );
+    std::shared_ptr<RdBuff> rdbuff( new RdBuff( objcfg, offset, buffer ) );
+    ReadBlock( objcfg, sign, plgr, rdbuff, handler );
   }
 
-  void ReadBlock( const std::string       &obj,
+  void ReadBlock( const ObjCfg            &objcfg,
                   const std::string       &sign,
                   const placement_group   &plgr,
                   std::shared_ptr<RdBuff> &rdbuff,
                   XrdCl::ResponseHandler  *handler )
   {
-    Config &cfg = Config::Instance();
-    std::shared_ptr<StrmRdCtx> ctx( new StrmRdCtx( rdbuff, plgr.size(), handler ) );
+    std::shared_ptr<StrmRdCtx> ctx( new StrmRdCtx( objcfg, rdbuff, plgr.size(), handler ) );
 
     // we don't know where the chunks are so we are trying all possible locations
     for( uint8_t i = 0; i < plgr.size(); ++i )
     {
-      std::string url = std::get<0>( plgr[i] ) + '/' + obj + '.' + std::to_string( rdbuff->offset / cfg.datasize ) + '?' + "ost.sig=" + sign;
-      ReadStripe( url, ctx );
+      std::string url = std::get<0>( plgr[i] ) + '/' + objcfg.obj + '.' + std::to_string( rdbuff->offset / objcfg.datasize ) + '?' + "ost.sig=" + sign;
+      ReadStripe( objcfg, url, ctx );
     }
   }
 

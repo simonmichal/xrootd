@@ -8,9 +8,10 @@
 #ifndef SRC_XRDEC_XRDECWRTBUFF_HH_
 #define SRC_XRDEC_XRDECWRTBUFF_HH_
 
-#include "XrdEc/XrdEcConfig.hh"
 #include "XrdEc/XrdEcUtilities.hh"
 #include "XrdEc/XrdEcScheduleHandler.hh"
+#include "XrdEc/XrdEcObjCfg.hh"
+#include "XrdEc/XrdEcConfig.hh"
 
 #include "XrdCl/XrdClBuffer.hh"
 #include "XrdCl/XrdClXRootDResponses.hh"
@@ -18,6 +19,8 @@
 #include <utility>
 #include <vector>
 #include <functional>
+
+#include <iostream>
 
 namespace XrdEc
 {
@@ -27,14 +30,14 @@ namespace XrdEc
   {
     public:
 
-      WrtBuff( uint64_t offset, WrtMode mode ) : mine( true ), paritybuff( Config::Instance().paritysize ), wrtmode( mode )
+      WrtBuff( const ObjCfg &objcfg, uint64_t offset, WrtMode mode ) : objcfg( objcfg ), mine( true ), paritybuff( objcfg.paritysize ), wrtmode( mode )
       {
-        Config &cfg = Config::Instance();
-        this->offset = offset - ( offset % cfg.datasize );
-        stripes.reserve( cfg.nbchunks );
+        this->offset = offset - ( offset % objcfg.datasize );
+        stripes.reserve( objcfg.nbchunks );
       }
 
-      WrtBuff( WrtBuff && wrtbuff ) : offset( wrtbuff.offset ),
+      WrtBuff( WrtBuff && wrtbuff ) : objcfg( wrtbuff.objcfg ),
+                                      offset( wrtbuff.offset ),
                                       wrtbuff( std::move( wrtbuff.wrtbuff ) ),
                                       mine( wrtbuff.mine ),
                                       paritybuff( std::move( wrtbuff.paritybuff ) ),
@@ -52,31 +55,30 @@ namespace XrdEc
       {
         if( this->offset + wrtbuff.GetCursor() != offset ) throw std::exception();
 
-        Config &cfg = Config::Instance();
-        if( wrtbuff.GetCursor() == 0 && size >= cfg.datasize )
+        if( wrtbuff.GetCursor() == 0 && size >= objcfg.datasize )
         {
           mine = false;
-          wrtbuff.Grab( const_cast<char*>( buffer ), cfg.datasize );
-          wrtbuff.AdvanceCursor( cfg.datasize );
+          wrtbuff.Grab( const_cast<char*>( buffer ), objcfg.datasize );
+          wrtbuff.AdvanceCursor( objcfg.datasize );
           Encode();
-          if( size == cfg.datasize ) ScheduleHandler( handler );
-          return cfg.datasize;
+          if( size == objcfg.datasize ) ScheduleHandler( handler );
+          return objcfg.datasize;
         }
 
         if( wrtbuff.GetSize() == 0 )
         {
           mine = true;
-          wrtbuff.Allocate( cfg.datasize );
+          wrtbuff.Allocate( objcfg.datasize );
           memset( wrtbuff.GetBuffer(), 0, wrtbuff.GetSize() );
         }
 
         uint64_t bytesAccepted = size;
-        if( wrtbuff.GetCursor() + bytesAccepted > cfg.datasize )
-          bytesAccepted = cfg.datasize - wrtbuff.GetCursor();
+        if( wrtbuff.GetCursor() + bytesAccepted > objcfg.datasize )
+          bytesAccepted = objcfg.datasize - wrtbuff.GetCursor();
         memcpy( wrtbuff.GetBufferAtCursor(), buffer, bytesAccepted );
         wrtbuff.AdvanceCursor( bytesAccepted );
 
-        if( wrtbuff.GetCursor() == cfg.datasize ) Encode();
+        if( wrtbuff.GetCursor() == objcfg.datasize ) Encode();
 
         if( bytesAccepted == size ) ScheduleHandler( handler );
 
@@ -94,8 +96,7 @@ namespace XrdEc
 
         // otherwise we allocate the buffer and set the cursor
         mine = true;
-        Config &cfg = Config::Instance();
-        wrtbuff.Allocate( cfg.datasize );
+        wrtbuff.Allocate( objcfg.datasize );
         memset( wrtbuff.GetBuffer(), 0, wrtbuff.GetSize() );
         wrtbuff.SetCursor( size );
         return;
@@ -108,22 +109,20 @@ namespace XrdEc
 
       uint32_t GetStrpSize( uint8_t strp )
       {
-        Config &cfg = Config::Instance();
-
         // Check if it is a data chunk?
-        if( strp < cfg.nbdata )
+        if( strp < objcfg.nbdata )
         {
           // If the cursor is at least at the expected size
           // it means we have the full chunk.
-          uint64_t expsize = ( strp + 1) * cfg.chunksize;
+          uint64_t expsize = ( strp + 1) * objcfg.chunksize;
           if( expsize <= wrtbuff.GetCursor() )
-            return cfg.chunksize;
+            return objcfg.chunksize;
 
           // If the cursor is of by less than the chunk size
           // it means we have a partial chunk
           uint64_t delta = expsize - wrtbuff.GetCursor();
-          if( delta < cfg.chunksize )
-            return cfg.chunksize - delta;
+          if( delta < objcfg.chunksize )
+            return objcfg.chunksize - delta;
 
           // otherwise we are handling an empty chunk
           return 0;
@@ -136,14 +135,12 @@ namespace XrdEc
 
       uint64_t GetBlkNb()
       {
-        Config &cfg = Config::Instance();
-        return offset / cfg.datasize;
+        return offset / objcfg.datasize;
       }
 
       std::string GetChecksum( uint8_t strpnb )
       {
-        Config &cfg = Config::Instance();
-        return CalcChecksum( stripes[strpnb].buffer, cfg.chunksize );
+        return CalcChecksum( stripes[strpnb].buffer, objcfg.chunksize );
       }
 
       inline uint32_t GetBlkSize()
@@ -153,8 +150,7 @@ namespace XrdEc
 
       bool Complete()
       {
-        Config &cfg = Config::Instance();
-        return wrtbuff.GetCursor() == cfg.datasize;
+        return wrtbuff.GetCursor() == objcfg.datasize;
       }
 
       bool Empty()
@@ -164,13 +160,14 @@ namespace XrdEc
 
       inline void Encode()
       {
-        Config &cfg = Config::Instance();
+
         uint8_t i ;
-        for( i = 0; i < cfg.nbdata; ++i )
-          stripes.emplace_back( wrtbuff.GetBuffer( i * cfg.chunksize ), true );
-        for( i = 0; i < cfg.nbparity; ++i )
-          stripes.emplace_back( paritybuff.GetBuffer( i * cfg.chunksize ), false );
-        cfg.redundancy.compute( stripes );
+        for( i = 0; i < objcfg.nbdata; ++i )
+          stripes.emplace_back( wrtbuff.GetBuffer( i * objcfg.chunksize ), true );
+        for( i = 0; i < objcfg.nbparity; ++i )
+          stripes.emplace_back( paritybuff.GetBuffer( i * objcfg.chunksize ), false );
+        Config &cfg = Config::Instance();
+        cfg.GetRedundancy( objcfg ).compute( stripes );
       }
 
       WrtMode GetWrtMode()
@@ -185,6 +182,7 @@ namespace XrdEc
 
     private:
 
+      ObjCfg         objcfg;
       uint64_t       offset;
       XrdCl::Buffer  wrtbuff;
       bool           mine;

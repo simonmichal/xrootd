@@ -45,7 +45,7 @@ namespace XrdEc
   };
 
 
-  void RemoveBlock( const std::string      &obj,
+  void RemoveBlock( const ObjCfg           &objcfg,
                     const std::string      &sign,
                     const placement_group  &plgr,
                     uint64_t                blknb,
@@ -53,13 +53,13 @@ namespace XrdEc
   {
     using namespace XrdCl;
 
-    std::string objname = obj + '.' + std::to_string( blknb ) + '?' + "ost.sig=" + sign;
+    std::string blkname = objcfg.obj + '.' + std::to_string( blknb ) + '?' + "ost.sig=" + sign;
     std::vector<XrdCl::Pipeline> rmblks;
     std::shared_ptr<RmBlkCtx> ctx( new RmBlkCtx( handler ) );
 
     for( auto &location : plgr )
     {
-      URL url( std::get<0>( location ) + '/' + objname );
+      URL url( std::get<0>( location ) + '/' + blkname );
       std::shared_ptr<XrdCl::FileSystem> fs( new XrdCl::FileSystem( url ) );
       rmblks.emplace_back( Rm( *fs, url.GetPath() ) >> [fs, ctx]( XRootDStatus &st ){ ctx->Handle( st ); } );
     }
@@ -78,13 +78,13 @@ namespace XrdEc
 
     public:
 
-      TruncateHandlerPriv( const std::string      &obj,
+      TruncateHandlerPriv( const ObjCfg           &objcfg,
                            const std::string      &sign,
                            const placement_group  &plgr,
                            uint64_t                blknb,
                            uint64_t                size,
                            XrdCl::ResponseHandler *handler ) : blkop( ReadBlk ),
-                                                               obj( obj ),
+                                                               objcfg( objcfg ),
                                                                sign( sign ),
                                                                plgr( plgr ),
                                                                blknb( blknb ),
@@ -110,17 +110,16 @@ namespace XrdEc
             response->Get( chunk );
             buffer.reset( reinterpret_cast<char*>( chunk->buffer ) );
             blkop = RemoveBlk;
-            RemoveBlock( obj, sign, plgr, blknb, this );
+            RemoveBlock( objcfg, sign, plgr, blknb, this );
             break;
           }
 
           case RemoveBlk:
           {
-            Config &cfg = Config::Instance();
-            WrtBuff wrtbuff( blknb * cfg.datasize, WrtMode::New );
-            wrtbuff.Write( blknb * cfg.datasize, size, buffer.get(), nullptr );
+            WrtBuff wrtbuff( objcfg, blknb * objcfg.datasize, WrtMode::New );
+            wrtbuff.Write( blknb * objcfg.datasize, size, buffer.get(), nullptr );
             blkop = WriteBlk;
-            WriteBlock( obj, sign, plgr, std::move( wrtbuff ), this );
+            WriteBlock( objcfg, sign, plgr, std::move( wrtbuff ), this );
             break;
           }
 
@@ -146,7 +145,7 @@ namespace XrdEc
     private:
 
       BlkOperation            blkop;
-      const std::string       obj;
+      ObjCfg                  objcfg;
       const std::string       sign;
       const placement_group   plgr;
       uint64_t                blknb;
@@ -155,16 +154,15 @@ namespace XrdEc
       std::unique_ptr<char[]> buffer;
   };
 
-  void TruncateBlock( const std::string      &obj,
+  void TruncateBlock( const ObjCfg           &objcfg,
                       const std::string      &sign,
                       const placement_group  &plgr,
                       uint64_t                blknb,
                       uint64_t                size,
                       XrdCl::ResponseHandler *handler )
   {
-    Config &cfg = Config::Instance();
-    char *buffer = new char[cfg.datasize];
-    ReadBlock( obj, sign, plgr, blknb * cfg.datasize, buffer, new TruncateHandlerPriv( obj, sign, plgr, blknb, size, handler ) );
+    char *buffer = new char[objcfg.datasize];
+    ReadBlock( objcfg, sign, plgr, blknb * objcfg.datasize, buffer, new TruncateHandlerPriv( objcfg, sign, plgr, blknb, size, handler ) );
   }
 
 } /* namespace XrdEc */

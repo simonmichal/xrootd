@@ -96,7 +96,7 @@ namespace XrdEc
       {
         std::unique_lock<std::mutex> lck( mtx );
         entry->Commit();
-        cv.notify_all();
+        cv.notify_one();
       }
 
       static void Work( Logger *me )

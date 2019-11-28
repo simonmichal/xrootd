@@ -14,7 +14,6 @@
  ************************************************************************/
 
 #include "XrdEc/XrdEcRedundancyProvider.hh"
-#include "XrdEc/XrdEcConfig.hh"
 
 #include "isa-l/isa-l.h"
 #include <string.h>
@@ -148,40 +147,20 @@ static int gf_gen_decode_matrix(
   return 0;
 }
 
-RedundancyProvider::RedundancyProvider( uint8_t nbdata, uint8_t nbparity ) :
-    encode_matrix( ( nbdata + nbparity ) * nbdata )
+RedundancyProvider::RedundancyProvider( const ObjCfg &objcfg ) :
+    objcfg( objcfg ),
+    encode_matrix( objcfg.nbchunks * objcfg.nbdata )
 {
   // k = data
   // m = data + parity
-  gf_gen_cauchy1_matrix( encode_matrix.data(), static_cast<int> (nbdata + nbparity ), static_cast<int>( nbdata ) );
+  gf_gen_cauchy1_matrix( encode_matrix.data(), static_cast<int>( objcfg.nbchunks ), static_cast<int>( objcfg.nbdata ) );
 }
 
-std::string RedundancyProvider::getErrorPattern( std::unordered_map<uint8_t, chbuff> &buffers ) const
-{
-  Config &cfg = Config::Instance();
-  std::string pattern( cfg.nbchunks, 0 );
-
-  for( uint8_t i = 0; i < cfg.nbchunks; ++i )
-  {
-    chbuff &buff = buffers[i];
-    if( !buff )
-    {
-      buff = make_chbuff();
-      buff->Invalidate();
-    }
-
-    if( !buff->IsValid() ) pattern[i] = '\1';
-  }
-
-  return pattern;
-}
 
 std::string RedundancyProvider::getErrorPattern( stripes_t &stripes ) const
 {
-  Config &cfg = Config::Instance();
-  std::string pattern( cfg.nbchunks, 0 );
-
-  for( uint8_t i = 0; i < cfg.nbchunks; ++i )
+  std::string pattern( objcfg.nbchunks, 0 );
+  for( uint8_t i = 0; i < objcfg.nbchunks; ++i )
     if( !stripes[i].valid ) pattern[i] = '\1';
 
   return pattern;
@@ -192,68 +171,42 @@ RedundancyProvider::CodingTable& RedundancyProvider::getCodingTable( const std::
 {
   std::lock_guard<std::mutex> lock(mutex);
 
-  Config &cfg = Config::Instance();
-
   /* If decode matrix is not already cached we have to construct it. */
   if( !cache.count(pattern) )
   {
     /* Expand pattern */
     int nerrs = 0, nsrcerrs = 0;
-    unsigned char err_indx_list[cfg.nbparity];
+    unsigned char err_indx_list[objcfg.nbparity];
     for (std::uint8_t i = 0; i < pattern.size(); i++) {
       if (pattern[i]) {
         err_indx_list[nerrs++] = i;
-        if (i < cfg.nbdata) { nsrcerrs++; }
+        if (i < objcfg.nbdata) { nsrcerrs++; }
       }
     }
 
     /* Allocate Decode Object. */
     CodingTable dd;
     dd.nErrors = nerrs;
-    dd.blockIndices.resize( cfg.nbdata );
-    dd.table.resize( cfg.nbdata * cfg.nbparity * 32);
+    dd.blockIndices.resize( objcfg.nbdata );
+    dd.table.resize( objcfg.nbdata * objcfg.nbparity * 32);
 
     /* Compute decode matrix. */
-    std::vector<unsigned char> decode_matrix((cfg.nbdata + cfg.nbparity) * cfg.nbdata);
+    std::vector<unsigned char> decode_matrix(objcfg.nbchunks * objcfg.nbdata);
 
     if (gf_gen_decode_matrix( encode_matrix.data(), decode_matrix.data(), dd.blockIndices.data(),
                               err_indx_list, (unsigned char*) pattern.c_str(), nerrs, nsrcerrs,
-                              static_cast<int>( cfg.nbdata ), static_cast<int>( cfg.nbparity + cfg.nbdata ) ) )
+                              static_cast<int>( objcfg.nbdata ), static_cast<int>( objcfg.nbchunks ) ) )
       throw IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError, errno, "Failed computing decode matrix" ) );
 
     /* Compute Tables. */
-    ec_init_tables( static_cast<int>( cfg.nbdata ), nerrs, decode_matrix.data(), dd.table.data() );
+    ec_init_tables( static_cast<int>( objcfg.nbdata ), nerrs, decode_matrix.data(), dd.table.data() );
     cache.insert( std::make_pair(pattern, dd) );
   }
   return cache.at(pattern);
 }
 
-void RedundancyProvider::replication( std::unordered_map<uint8_t, chbuff> &buffers )
-{
-  Config &cfg = Config::Instance();
-
-  // get index of a valid block
-  void *healthy = nullptr;
-  for( auto itr = buffers.begin(); itr != buffers.end(); ++itr )
-  {
-    if( itr->second->IsValid() )
-      healthy = itr->second->Get();
-  }
-
-  if( !healthy ) throw IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
-
-  // now replicate, by now 'buffers' should contain all chunks
-  for( uint8_t i = 0; i < cfg.nbchunks; ++i )
-  {
-    if( !buffers[i]->IsValid() )
-      memcpy( buffers[i]->Get(), healthy, cfg.nbchunks );
-  }
-}
-
 void RedundancyProvider::replication( stripes_t &stripes )
 {
-  Config &cfg = Config::Instance();
-
   // get index of a valid block
   void *healthy = nullptr;
   for( auto itr = stripes.begin(); itr != stripes.end(); ++itr )
@@ -265,59 +218,10 @@ void RedundancyProvider::replication( stripes_t &stripes )
   if( !healthy ) throw IOError( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
 
   // now replicate, by now 'buffers' should contain all chunks
-  for( uint8_t i = 0; i < cfg.nbchunks; ++i )
+  for( uint8_t i = 0; i < objcfg.nbchunks; ++i )
   {
     if( !stripes[i].valid )
-      memcpy( stripes[i].buffer, healthy, cfg.chunksize );
-  }
-}
-
-void RedundancyProvider::compute( std::unordered_map<uint8_t, chbuff> &buffers )
-{
-  /* throws if stripe is not recoverable */
-  std::string pattern = getErrorPattern( buffers );
-
-  Config &cfg = Config::Instance();
-
-  /* nothing to do if there are no parity blocks. */
-  if ( !cfg.nbparity ) return;
-
-  /* in case of a single data block use replication */
-  if ( cfg.nbdata == 1 )
-    return replication( buffers );
-
-  /* normal operation: erasure coding */
-  CodingTable& dd = getCodingTable(pattern);
-
-  unsigned char* inbuf[cfg.nbdata];
-  for( uint8_t i = 0; i < cfg.nbdata; i++ )
-    inbuf[i] = reinterpret_cast<unsigned char*>( buffers[dd.blockIndices[i]]->Get() );
-
-  std::vector<unsigned char> memory( dd.nErrors * cfg.chunksize );
-
-  unsigned char* outbuf[dd.nErrors];
-  for (int i = 0; i < dd.nErrors; i++)
-  {
-    outbuf[i] = &memory[i * cfg.chunksize];
-  }
-
-  ec_encode_data(
-      static_cast<int>( cfg.chunksize ), // Length of each block of data (vector) of source or destination data.
-      static_cast<int>( cfg.nbdata ),     // The number of vector sources in the generator matrix for coding.
-      dd.nErrors,     // The number of output vectors to concurrently encode/decode.
-      dd.table.data(), // Pointer to array of input tables
-      inbuf,          // Array of pointers to source input buffers
-      outbuf          // Array of pointers to coded output buffers
-  );
-
-  int e = 0;
-  for (size_t i = 0; i < cfg.nbchunks; i++)
-  {
-    if( pattern[i] )
-    {
-      memcpy( buffers[i]->Get(), outbuf[e], cfg.chunksize );
-      e++;
-    }
+      memcpy( stripes[i].buffer, healthy, objcfg.chunksize );
   }
 }
 
@@ -326,33 +230,31 @@ void RedundancyProvider::compute( stripes_t &stripes )
   /* throws if stripe is not recoverable */
   std::string pattern = getErrorPattern( stripes );
 
-  Config &cfg = Config::Instance();
-
   /* nothing to do if there are no parity blocks. */
-  if ( !cfg.nbparity ) return;
+  if ( !objcfg.nbparity ) return;
 
   /* in case of a single data block use replication */
-  if ( cfg.nbdata == 1 )
+  if ( objcfg.nbdata == 1 )
     return replication( stripes );
 
   /* normal operation: erasure coding */
   CodingTable& dd = getCodingTable(pattern);
 
-  unsigned char* inbuf[cfg.nbdata];
-  for( uint8_t i = 0; i < cfg.nbdata; i++ )
+  unsigned char* inbuf[objcfg.nbdata];
+  for( uint8_t i = 0; i < objcfg.nbdata; i++ )
     inbuf[i] = reinterpret_cast<unsigned char*>( stripes[dd.blockIndices[i]].buffer );
 
-  std::vector<unsigned char> memory( dd.nErrors * cfg.chunksize );
+  std::vector<unsigned char> memory( dd.nErrors * objcfg.chunksize );
 
   unsigned char* outbuf[dd.nErrors];
   for (int i = 0; i < dd.nErrors; i++)
   {
-    outbuf[i] = &memory[i * cfg.chunksize];
+    outbuf[i] = &memory[i * objcfg.chunksize];
   }
 
   ec_encode_data(
-      static_cast<int>( cfg.chunksize ), // Length of each block of data (vector) of source or destination data.
-      static_cast<int>( cfg.nbdata ),     // The number of vector sources in the generator matrix for coding.
+      static_cast<int>( objcfg.chunksize ), // Length of each block of data (vector) of source or destination data.
+      static_cast<int>( objcfg.nbdata ),     // The number of vector sources in the generator matrix for coding.
       dd.nErrors,     // The number of output vectors to concurrently encode/decode.
       dd.table.data(), // Pointer to array of input tables
       inbuf,          // Array of pointers to source input buffers
@@ -360,11 +262,11 @@ void RedundancyProvider::compute( stripes_t &stripes )
   );
 
   int e = 0;
-  for (size_t i = 0; i < cfg.nbchunks; i++)
+  for (size_t i = 0; i < objcfg.nbchunks; i++)
   {
     if( pattern[i] )
     {
-      memcpy( stripes[i].buffer, outbuf[e], cfg.chunksize );
+      memcpy( stripes[i].buffer, outbuf[e], objcfg.chunksize );
       e++;
     }
   }

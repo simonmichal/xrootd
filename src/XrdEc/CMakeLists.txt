@@ -79,15 +79,10 @@ add_library(
   ${LIB_XRD_EC}
   MODULE
   XrdEcDataObject.hh           XrdEcDataObject.cc
-  XrdEcBlock.hh                XrdEcBlock.cc
-  XrdEcBlockPool.hh
   XrdEcConfig.hh
-  XrdEcBlockIO.hh              XrdEcBlockIO.cc
   XrdEcRedundancyProvider.hh   XrdEcRedundancyProvider.cc 
-  XrdEcBlockReader.hh          XrdEcBlockReader.cc
-  XrdEcStripeReader.hh         XrdEcStripeReader.cc
   XrdEcUtilities.hh            XrdEcUtilities.cc
-  
+  XrdEcRandomRead.hh           XrdEcRandomRead.cc
   XrdEcWriteBlock.hh           XrdEcWriteBlock.cc
   XrdEcReadBlock.hh            XrdEcReadBlock.cc
   XrdEcTruncate.hh             XrdEcTruncate.cc
@@ -124,16 +119,10 @@ add_library(
   XrdEc
   SHARED
   XrdEcDataObject.hh           XrdEcDataObject.cc
-  XrdEcBlock.hh                XrdEcBlock.cc
-  XrdEcBlockPool.hh
   XrdEcConfig.hh
-  XrdEcBlockIO.hh              XrdEcBlockIO.cc
   XrdEcRedundancyProvider.hh   XrdEcRedundancyProvider.cc 
-  XrdEcBlockReader.hh          XrdEcBlockReader.cc
-  XrdEcStripeReader.hh         XrdEcStripeReader.cc
   XrdEcUtilities.hh            XrdEcUtilities.cc
   XrdEcRandomRead.hh           XrdEcRandomRead.cc
-  
   XrdEcWriteBlock.hh           XrdEcWriteBlock.cc
   XrdEcReadBlock.hh            XrdEcReadBlock.cc
   XrdEcTruncate.hh             XrdEcTruncate.cc

@@ -22,6 +22,7 @@
 #ifndef KINETICIO_REDUNDANCYPROVIDER_HH
 #define KINETICIO_REDUNDANCYPROVIDER_HH
 
+#include "XrdEc/XrdEcObjCfg.hh"
 #include "XrdEc/XrdEcUtilities.hh"
 
 #include <memory>
@@ -47,7 +48,6 @@ namespace XrdEc
     //! @param stripe nData+nParity blocks, missing (empty) blocks will be
     //!   computed if possible.
     //--------------------------------------------------------------------------
-    void compute( std::unordered_map<uint8_t, chbuff> &buffers );
     void compute( stripes_t &stripes );
 
     //--------------------------------------------------------------------------
@@ -55,7 +55,7 @@ namespace XrdEc
     //! Stripe parameters (number of data and parity blocks) are constant per
     //! ErasureEncoding object.
     //--------------------------------------------------------------------------
-    RedundancyProvider( uint8_t nbdata, uint8_t nbparity );
+    RedundancyProvider( const ObjCfg &objcfg );
 
   private:
     //--------------------------------------------------------------------------
@@ -81,7 +81,6 @@ namespace XrdEc
     //!        errors
     //! @return a string of stripe size describing the error pattern
     //--------------------------------------------------------------------------
-    std::string getErrorPattern( std::unordered_map<uint8_t, chbuff> &buffers ) const;
     std::string getErrorPattern( stripes_t &stripes ) const;
 
     //--------------------------------------------------------------------------
@@ -98,9 +97,9 @@ namespace XrdEc
 
   private:
 
-    static void replication( std::unordered_map<uint8_t, chbuff> &buffers );
-    static void replication( stripes_t &stripes );
+    void replication( stripes_t &stripes );
 
+    ObjCfg objcfg;
 
     //! the encoding matrix, required to compute any decode matrix
     std::vector<unsigned char> encode_matrix;
