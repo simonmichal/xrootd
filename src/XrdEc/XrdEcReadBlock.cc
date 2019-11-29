@@ -36,7 +36,7 @@ namespace XrdEc
 
       void NotFound()
       {
-        std::unique_lock<std::recursive_mutex> lck( mtx );
+        std::unique_lock<std::mutex> lck( mtx );
         ++nbnotfound;
 
         std::stringstream ss;
@@ -44,12 +44,24 @@ namespace XrdEc
         Logger &log = Logger::Instance();
         log.Entry( ss.str() );
 
-        if( nbnotfound > nburls - objcfg.nbchunks ) OnError();
+        if( nbnotfound + nberr > nburls - objcfg.nbdata )
+        {
+          // Run potential read callbacks!!!
+          rdbuff->RunCallbacks( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
+
+          if( userHandler )
+          {
+            XrdCl::ResponseHandler *handler = userHandler;
+            userHandler = 0;
+            lck.unlock();
+            handler->HandleResponse( new XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ), 0 );
+          }
+        }
       }
 
       void OnError()
       {
-        std::unique_lock<std::recursive_mutex> lck( mtx );
+        std::unique_lock<std::mutex> lck( mtx );
         ++nberr;
 
         std::stringstream ss;
@@ -57,21 +69,24 @@ namespace XrdEc
         Logger &log = Logger::Instance();
         log.Entry( ss.str() );
 
-        if( nberr > objcfg.paritysize )
+        if( nbnotfound + nberr > nburls - objcfg.nbdata  )
         {
-          XrdCl::ResponseHandler *handler = userHandler;
-          userHandler = 0;
-          lck.unlock();
-          handler->HandleResponse( new XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ), 0 );
-
           // Run potential read callbacks!!!
           rdbuff->RunCallbacks( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
+
+          if( userHandler )
+          {
+            XrdCl::ResponseHandler *handler = userHandler;
+            userHandler = 0;
+            lck.unlock();
+            handler->HandleResponse( new XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ), 0 );
+          }
         }
       }
 
       void OnSuccess( char *buffer, uint32_t size, uint8_t strpnb, uint32_t blksize )
       {
-        std::unique_lock<std::recursive_mutex> lck( mtx );
+        std::unique_lock<std::mutex> lck( mtx );
         ++nbok;
 
         std::stringstream ss;
@@ -100,6 +115,9 @@ namespace XrdEc
               break;
             }
 
+          // Run potential read callbacks!!!
+          rdbuff->RunCallbacks( XrdCl::XRootDStatus() );
+
           if( userHandler )
           {
             XrdCl::ResponseHandler *handler = userHandler;
@@ -113,9 +131,6 @@ namespace XrdEc
             resp->Set( chunk );
             handler->HandleResponse( new XrdCl::XRootDStatus(), resp );
           }
-
-          // Run potential read callbacks!!!
-          rdbuff->RunCallbacks( XrdCl::XRootDStatus() );
         }
       }
 
@@ -132,7 +147,7 @@ namespace XrdEc
       stripes_t                            stripes;
 
       XrdCl::ResponseHandler*              userHandler;
-      std::recursive_mutex                 mtx;
+      std::mutex                           mtx;
   };
 }
 
@@ -192,8 +207,8 @@ namespace
     Logger &log = Logger::Instance();
     log.Entry( ss.str() );
 
-    std::unique_lock<std::recursive_mutex> lck( ctx->mtx );
-    std::shared_ptr<File> file( new File() );
+    std::unique_lock<std::mutex> lck( ctx->mtx );
+    std::shared_ptr<File> file( new File( false ) );
     std::shared_ptr<StrpData> strpdata( new StrpData( objcfg, ctx ) );
 
     // Construct the pipeline

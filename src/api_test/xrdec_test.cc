@@ -60,7 +60,7 @@ const std::string objname( "0000000000000001-isa-12:4-4.0" );
 
 static ObjCfg objcfg( objname ); // the configuration we use !!!
 
-placement_group& GetPlacement()
+inline placement_group& GetPlacement()
 {
   static placement_group plgr;
   if( plgr.empty() )
@@ -74,9 +74,9 @@ placement_group& GetPlacement()
   return plgr;
 }
 
-std::default_random_engine& GetGenerator()
+inline std::default_random_engine& GetGenerator()
 {
-  static unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+  static unsigned seed = 2688813254;//std::chrono::system_clock::now().time_since_epoch().count();
   static std::default_random_engine generator( seed );
   static bool print = false;
   if( !print )
@@ -111,12 +111,11 @@ inline std::string SelectChunk( uint64_t offset, uint32_t size )
   return url.GetURL();
 }
 
-bool RemoveChunk( const XrdCl::URL &url )
+inline bool RemoveChunk( const XrdCl::URL &url )
 {
   std::cout << __func__ << " : url = " << url.GetPath() << std::endl;
-
   int rc = remove( url.GetPath().c_str() );
-  if( rc != 0 && errno != ENOENT )
+  if( rc != 0 && errno != ENOENT && errno != EACCES )
   {
     std::cout << strerror( errno ) << std::endl;
     return false;
@@ -125,25 +124,17 @@ bool RemoveChunk( const XrdCl::URL &url )
   return true;
 }
 
-bool RemoveChunk( uint64_t offset, uint32_t size )
+inline bool RemoveChunk( uint64_t offset, uint32_t size )
 {
   return RemoveChunk( SelectChunk( offset, size ) );
 }
 
-bool RejectAccess( uint64_t offset, uint32_t size )
+inline bool RejectAccess( const XrdCl::URL &url )
 {
-  XrdCl::URL url = SelectChunk( offset, size );
-  RemoveChunk( url );
-
-  std::cout << __func__ << " : url = " << url.GetPath() << std::endl;
-
-  std::ofstream chunk( url.GetPath() );
-  chunk.flush();
-
   mode_t mode;
   memset( &mode, 0, sizeof( mode ) );
   int rc = chmod( url.GetPath().c_str(), mode );
-  if( rc != 0 )
+  if( rc != 0 && errno != ENOENT && errno != EACCES )
   {
     std::cout << strerror( errno ) << std::endl;
     return false;
@@ -152,7 +143,18 @@ bool RejectAccess( uint64_t offset, uint32_t size )
   return true;
 }
 
-bool CorruptChunk( uint64_t offset, uint32_t size )
+inline bool RejectAccess( uint64_t offset, uint32_t size )
+{
+  XrdCl::URL url = SelectChunk( offset, size );
+  std::cout << __func__ << " : url = " << url.GetPath() << std::endl;
+  if( !RemoveChunk( url ) ) return false;
+  std::ofstream chunk( url.GetPath() );
+  chunk.flush();
+
+  return RejectAccess( url );
+}
+
+inline bool CorruptChunk( uint64_t offset, uint32_t size )
 {
   std::string str = "some random string that does not appear in bible ;-)";
   XrdCl::URL url = SelectChunk( offset, size );
@@ -165,7 +167,8 @@ bool CorruptChunk( uint64_t offset, uint32_t size )
   return true;
 }
 
-bool DoError( size_t upper )
+
+inline bool DoError( size_t upper )
 {
   static std::uniform_int_distribution<size_t> prob( 1, upper );
   size_t randval = prob( GetGenerator() );
@@ -195,7 +198,18 @@ bool RandomError( uint64_t offset, uint32_t size )
 
 bool WriteBible( DataObject &store, char *bigbuff, size_t biblesize )
 {
-  // TODO to test errors change ownership of one directory !!!
+  // select unavailable destination
+  std::uniform_int_distribution<size_t> dirdistr( 0, 15 );
+  size_t dirnb = dirdistr( GetGenerator() );
+  std::string url = "file://localhost/data/dir" + std::to_string( dirnb );
+  if( !RejectAccess( url ) )
+  {
+    std::cout << "RejectAccess failed!" << std::endl;
+    return false;
+  }
+  else
+    std::cout << "RejectAccess : " << url << std::endl;
+
 
   char    *wrtbuff = bigbuff;
   size_t   wrtsize = biblesize;

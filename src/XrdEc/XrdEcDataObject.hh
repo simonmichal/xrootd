@@ -100,9 +100,9 @@ namespace XrdEc
 
     public:
 
-      DataObject( const std::string &path, uint64_t size ) : path( path ), objsize( size )
+      DataObject( const std::string &url, uint64_t size ) : url( url ), objsize( size ) // this should throw if EOS does not give as an object name TODO
       {
-        MgmFeedback feedback = EosAdaptor::ResolveDummy( path, Config::Instance().headnode );
+        MgmFeedback feedback = EosAdaptor::ResolveDummy( url, Config::Instance().headnode );
         objname   = std::move( feedback.objname );
         plgr      = std::move( feedback.plgr );
         signature = std::move( feedback.signature );
@@ -325,7 +325,7 @@ namespace XrdEc
         if( lastblk != offset ) wrtbuff->Pad( offset - lastblk );
       }
 
-      std::string              path;
+      XrdCl::URL               url;
       uint64_t                 objsize;
       std::string              objname;
       std::string              signature;

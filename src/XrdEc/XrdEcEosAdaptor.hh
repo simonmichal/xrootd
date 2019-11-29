@@ -75,7 +75,7 @@ namespace XrdEc
         // resolve the placement group
         std::string queryurls = headnode + "/proc/user/?mgm.pcmd=ost.pg&mgm.ost.pg=" + placementgr;
         // we will get the urls by reading a proc file
-        File proc_user;
+        File proc_user( false );
         st = proc_user.Open( queryurls, OpenFlags::Read );
         if( !st.IsOK() ) throw std::exception(); // TODO
         StatInfo *info = 0;

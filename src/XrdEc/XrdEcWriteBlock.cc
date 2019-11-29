@@ -16,8 +16,6 @@
 #include <atomic>
 #include <algorithm>
 
-#include <iostream>
-
 namespace
 {
   using namespace XrdEc;
@@ -80,17 +78,6 @@ namespace
       void HandleOpenStatus( const XrdCl::XRootDStatus &st, uint8_t strpnb )
       {
         std::unique_lock<std::mutex> lck( mtx );
-        bool ret = !( !st.IsOK() && st.code == XrdCl::errErrorResponse && ( st.errNo == kXR_InvalidRequest || st.errNo == kXR_FileLocked ) ) ;
-        if( !st.IsOK() )
-        {
-          bool ret1 = !st.IsOK() && st.code == XrdCl::errErrorResponse;
-          std::cout << __func__ << " : ret1 = " << ( ret1 ? "true" : "false" ) << std::endl;
-          bool ret2 = !st.IsOK() && st.code == XrdCl::errErrorResponse && ( st.errNo == kXR_InvalidRequest || st.errNo == kXR_FileLocked );
-          std::cout << __func__ << " : ret2 = " << ( ret2 ? "true" : "false" ) << std::endl;
-          std::cout << __func__ << " : st.errNo = " << st.errNo << std::endl;
-          std::cout << __func__ << " : ret = " << ( ret ? "true" : "false" ) << std::endl;
-        }
-
         retriable[strpnb] = !( !st.IsOK() && st.code == XrdCl::errErrorResponse &&
                                ( st.errNo == kXR_InvalidRequest || st.errNo == kXR_FileLocked ) ) ;
       }
@@ -126,7 +113,7 @@ namespace
     using namespace XrdCl;
 
     std::unique_lock<std::mutex> lck( ctx->mtx );
-    std::shared_ptr<File> file( new File() );
+    std::shared_ptr<File> file( new File( false ) );
     XrdCl::OpenFlags::Flags flags = ctx->wrtbuff.GetWrtMode() == WrtMode::New ? OpenFlags::New : OpenFlags::Delete;
     flags |= OpenFlags::Write | OpenFlags::POSC;
     std::string url = ctx->placement[strpnb] + '/' + ctx->blkname;
@@ -186,7 +173,7 @@ namespace
   {
     using namespace XrdCl;
 
-    std::shared_ptr<File> file( new File() );
+    std::shared_ptr<File> file( new File( false ) );
     OpenFlags::Flags flags = OpenFlags::New | OpenFlags::Write | OpenFlags::POSC;
     std::string url = ctx->placement[strpnb] + '/' + ctx->blkname;
     static const std::string checksum = GetChecksum( objcfg );

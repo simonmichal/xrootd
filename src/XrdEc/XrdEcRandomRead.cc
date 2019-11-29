@@ -192,7 +192,7 @@ namespace
   {
     using namespace XrdCl;
 
-    std::shared_ptr<File>      file( new File() );
+    std::shared_ptr<File>      file( new File( false ) );
     std::shared_ptr<StrpRdCtx> strpctx( new StrpRdCtx( objcfg, ctx, strpnb, offset, size, buffer ) );
     strpctx->url = url;
 
