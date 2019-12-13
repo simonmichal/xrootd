@@ -10,6 +10,7 @@
 
 #include "XrdEc/XrdEcUtilities.hh"
 #include "XrdEc/XrdEcObjCfg.hh"
+#include "XrdEc/XrdEcCallbackWrapper.hh"
 #include "XrdCl/XrdClXRootDResponses.hh"
 
 #include <string>
@@ -97,13 +98,13 @@ namespace XrdEc
       std::mutex              mtx;
   };
 
-  void ReadFromBlock( const ObjCfg            &objcfg,
-                      const std::string       &sign,
-                      const placement_group   &plgr,
-                      uint64_t                 offset,
-                      uint32_t                 size,
-                      char                    *buffer,
-                      XrdCl::ResponseHandler  *handler );
+  void ReadFromBlock( const ObjCfg                     &objcfg,
+                      const std::string                &sign,
+                      const placement_group            &plgr,
+                      uint64_t                          offset,
+                      uint32_t                          size,
+                      char                             *buffer,
+                      std::shared_ptr<CallbackWrapper> &callback );
 
 } /* namespace XrdEc */
 

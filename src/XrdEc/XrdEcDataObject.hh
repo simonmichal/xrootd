@@ -130,7 +130,7 @@ namespace XrdEc
         if( offset + size > objsize )
           size = objsize - offset;
 
-        XrdCl::ResponseHandler *rdHandler = GetRdHandler( *objcfg, offset, size, buff, handler );
+        auto rdHandler = GetRdHandler( *objcfg, offset, size, buff, handler );
 
         while( size > 0 )
         {
@@ -192,13 +192,14 @@ namespace XrdEc
         uint32_t nbrd      = 0;
         uint32_t left      = size;
         RandRdHandler *rdHandler = new RandRdHandler( *objcfg, offset, size, buff, handler );
+        std::shared_ptr<CallbackWrapper> rdCallback( new CallbackWrapper( rdHandler ) );
 
         for( uint64_t blknb = firstblk; nbrd < size; ++blknb )
         {
           uint32_t blkrdsize = left;
           if( blkrdsize > objcfg->datasize - blkoff )
             blkrdsize = objcfg->datasize - blkoff;
-          ReadFromBlock( objname, signature, plgr, offset, blkrdsize, buff, rdHandler );
+          ReadFromBlock( objname, signature, plgr, offset, blkrdsize, buff, rdCallback );
           nbrd   += blkrdsize;
           offset += blkrdsize;
           buff   += blkrdsize;

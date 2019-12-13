@@ -162,7 +162,8 @@ namespace XrdEc
                       XrdCl::ResponseHandler *handler )
   {
     char *buffer = new char[objcfg.datasize];
-    ReadBlock( objcfg, sign, plgr, blknb * objcfg.datasize, buffer, new TruncateHandlerPriv( objcfg, sign, plgr, blknb, size, handler ) );
+    std::shared_ptr<CallbackWrapper> callback( new CallbackWrapper( new TruncateHandlerPriv( objcfg, sign, plgr, blknb, size, handler ) ) );
+    ReadBlock( objcfg, sign, plgr, blknb * objcfg.datasize, buffer, callback );
   }
 
 } /* namespace XrdEc */

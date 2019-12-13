@@ -76,7 +76,9 @@ inline placement_group& GetPlacement()
 
 inline std::default_random_engine& GetGenerator()
 {
-  static unsigned seed = 2688813254;//std::chrono::system_clock::now().time_since_epoch().count();
+  // 2688813254
+
+  static unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
   static std::default_random_engine generator( seed );
   static bool print = false;
   if( !print )
@@ -198,6 +200,11 @@ bool RandomError( uint64_t offset, uint32_t size )
 
 bool WriteBible( DataObject &store, char *bigbuff, size_t biblesize )
 {
+  Logger &log = Logger::Instance();
+  std::stringstream ss;
+  ss << __func__;
+  log.Entry( ss.str() );
+
   // select unavailable destination
   std::uniform_int_distribution<size_t> dirdistr( 0, 15 );
   size_t dirnb = dirdistr( GetGenerator() );
@@ -253,17 +260,52 @@ bool WriteBible( DataObject &store, char *bigbuff, size_t biblesize )
   delete status;
 
   // we are done, everything is good so we can purge the log file
-  Logger::Instance().Purge();
+  log.Purge();
 
   return true;
 }
 
+struct log_buffer
+{
+    log_buffer( size_t size ) : buffer( new char[size] )
+    {
+      Logger &log = Logger::Instance();
+      std::stringstream ss;
+      ss << __func__ << " : buffer = " << (void*)buffer;
+      log.Entry( ss.str() );
+    }
+
+    ~log_buffer()
+    {
+      Logger &log = Logger::Instance();
+      std::stringstream ss;
+      ss << __func__ << " : buffer = " << (void*)buffer;
+      log.Entry( ss.str() );
+      delete[] buffer;
+    }
+
+    char* get()
+    {
+      return buffer;
+    }
+
+  private:
+
+    char *buffer;
+};
+
 bool ReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint32_t chsize )
 {
+  Logger &log = Logger::Instance();
+  std::stringstream ss;
+  ss << __func__ << " : chsize = " << chsize;
+  log.Entry( ss.str() );
+
   size_t rdsize = 0;
   int chnb = 0;
   uint64_t offset = 0;
   char *biblechunk = bigbuff;
+//  std::unique_ptr<char[]> rdbuff( new char[chsize] );
 
   while( rdsize < biblesize )
   {
@@ -274,19 +316,26 @@ bool ReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint32_t chsi
         return false;
       }
 
-    char rdbuff[chsize];
-    SyncResponseHandler handler2;
-    store.StrmRead( offset, chsize, rdbuff, &handler2 );
-    handler2.WaitForResponse();
-    XRootDStatus *status = handler2.GetStatus();
-    if( !status->IsOK() )
+    log_buffer rdbuff( chsize );
+    memset( rdbuff.get(), 0, chsize );
+    SyncResponseHandler handler;
+    store.StrmRead( offset, chsize, rdbuff.get(), &handler );
+    handler.WaitForResponse();
+    XRootDStatus *status = handler.GetStatus();
+    if( !status->IsOK() && status->errNo != errDataError )
     {
-      std::cout << status->ToString() << std::endl;
-      return false;
+      if( status->code !=errDataError && status->errNo != errDataError )
+      {
+        std::cout << status->ToString() << std::endl;
+        return false;
+      }
+      // Data errors are either caused by to aggressive corruption or to intensive I/O
+      std::cout << "Failure: to aggressive corruption or to intensive I/O!" << std::endl;
+      return true;
     }
     delete status;
 
-    AnyObject *resp = handler2.GetResponse();
+    AnyObject *resp = handler.GetResponse();
     ChunkInfo *info = 0;
     resp->Get( info );
     uint32_t length = info->length;
@@ -302,12 +351,12 @@ bool ReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint32_t chsi
       std::cout << "\n\nReference:" << std::endl;
       std::cout << std::string( biblechunk, explen ) << std::endl;
       std::cout << "\n\nData read:" << std::endl;
-      std::cout << std::string( rdbuff, bytesrd ) << std::endl;
+      std::cout << std::string( rdbuff.get(), bytesrd ) << std::endl;
 
       return false;
     }
 
-    bool buffeq = std::equal( rdbuff, rdbuff + length, biblechunk );
+    bool buffeq = std::equal( rdbuff.get(), rdbuff.get() + length, biblechunk );
 //    std::cout << "Chunk " << chnb << " : " << ( buffeq ? "EQUAL" : "NOT EQUAL" ) << std::endl;
 //    std::cout << "info->length = " << info->length << std::endl;
     if( !buffeq )
@@ -315,7 +364,7 @@ bool ReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint32_t chsi
       std::cout << "\nReference:" << std::endl;
       std::cout << std::string( biblechunk, length ) << std::endl;
       std::cout << "\nData read:" << std::endl;
-      std::cout << std::string( rdbuff, length ) << std::endl;
+      std::cout << std::string( rdbuff.get(), length ) << std::endl;
       return false;
     }
 
@@ -369,7 +418,14 @@ bool ReadTestAll( DataObject &store, char *bigbuff, size_t biblesize )
 
 bool RandReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint64_t offset, uint32_t length )
 {
-  char     buffer[length];
+  Logger &log = Logger::Instance();
+  std::stringstream ss;
+  ss << __func__ << " : offset = " << offset << ", length = " << length;
+  log.Entry( ss.str() );
+
+//  std::unique_ptr<char[]> buffer( new char[length] );
+  log_buffer buffer( length );
+  memset( buffer.get(), 0, length );
 
   if( DoError( 1000 ) )
     if( !RandomError( offset, length ) )
@@ -379,13 +435,19 @@ bool RandReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint64_t 
     }
 
   XrdCl::SyncResponseHandler handler;
-  store.RandomRead( offset, length, buffer, &handler );
+  store.RandomRead( offset, length, buffer.get(), &handler );
   handler.WaitForResponse();
   XRootDStatus *status = handler.GetStatus();
   if( !status->IsOK() )
   {
-    std::cout << status->ToString() << std::endl;
-    return false;
+    if( status->code !=errDataError && status->errNo != errDataError )
+    {
+      std::cout << status->ToString() << std::endl;
+      return false;
+    }
+    // Data errors are either caused by to aggressive corruption or to intensive I/O
+    std::cout << "Failure: to aggressive corruption or to intensive I/O!" << std::endl;
+    return true;
   }
   delete status;
 
@@ -410,18 +472,18 @@ bool RandReadTest( DataObject &store, char *bigbuff, size_t biblesize, uint64_t 
     std::cout << "\n\nReference:" << std::endl;
     std::cout << std::string( begin, explen ) << std::endl;
     std::cout << "\n\nData read:" << std::endl;
-    std::cout << std::string( buffer, bytesrd ) << std::endl;
+    std::cout << std::string( buffer.get(), bytesrd ) << std::endl;
 
     return false;
   }
 
-  bool buffeq = std::equal( begin, end, buffer );
+  bool buffeq = std::equal( begin, end, buffer.get() );
   if( !buffeq )
   {
     std::cout << "\n\nReference:" << std::endl;
     std::cout << std::string( begin, bytesrd ) << std::endl;
     std::cout << "\n\nData read:" << std::endl;
-    std::cout << std::string( buffer, bytesrd ) << std::endl;
+    std::cout << std::string( buffer.get(), bytesrd ) << std::endl;
     std::cout << "Bytes read don't match the reference!" << std::endl;
     return false;
   }
@@ -468,6 +530,9 @@ bool RandTestRandomReadBigChunk( DataObject &store, char *bigbuff, size_t bibles
   uint64_t offset = offdistr( GetGenerator() );
   std::uniform_int_distribution<size_t> lendistr( offset, biblesize + 1024 * 6 );
   uint32_t length = lendistr( GetGenerator() );
+
+  std::cout << __func__ << " : offset = " << offset << ", length = " << length << std::endl;
+
   return RandReadTest( store, bigbuff, biblesize, offset, length );
 }
 
@@ -496,6 +561,11 @@ bool ReadTestRandomChunkSmall( DataObject &store, char *bigbuff, size_t biblesiz
 
 bool TruncateStore( DataObject &store, uint64_t size )
 {
+  Logger &log = Logger::Instance();
+  std::stringstream ss;
+  ss << __func__ << " : size = " << size;
+  log.Entry( ss.str() );
+
   SyncResponseHandler handler0;
   store.Truncate( size, &handler0 );
   handler0.WaitForResponse();
@@ -515,6 +585,11 @@ bool TruncateStore( DataObject &store, uint64_t size )
 
 bool SparseFileTest( char *bigbuff, size_t biblesize )
 {
+  Logger &log = Logger::Instance();
+  std::stringstream ss;
+  ss << __func__;
+  log.Entry( ss.str() );
+
   //---------------------------------------------------------------------
   // We are testing following scenario:
   //
@@ -543,7 +618,7 @@ bool SparseFileTest( char *bigbuff, size_t biblesize )
   // prepare for writing
   //---------------------------------------------------------------------
 
-  uint64_t refsize = objcfg.datasize * 8;
+  const uint64_t refsize = objcfg.datasize * 8;
   char reference[refsize];
   memset( reference, 0, refsize );
 
@@ -779,17 +854,17 @@ int main( int argc, char** argv )
 
   std::string path = "bible.txt";
   size_t biblesize = 4047392;
-  char *bigbuff = new char[biblesize + 1024]; // big buffer than can accommodate the whole bible plus bit more
+  std::unique_ptr<char[]> bigbuff( new char[biblesize + 1024] ); // big buffer than can accommodate the whole bible plus bit more
   std::ifstream fs;
   fs.open( path, std::fstream::in );
-  fs.read( bigbuff, biblesize );
+  fs.read( bigbuff.get(), biblesize );
   fs.close();
   bigbuff[biblesize] = 0;
 
   std::cout << "biblesize = " << biblesize << std::endl;
 //  std::cout << bigbuff << std::endl;
 
-  if( !SparseFileTest( bigbuff, biblesize ) )
+  if( !SparseFileTest( bigbuff.get(), biblesize ) )
   {
     std::cout << "SparseFileTest: failed!" << std::endl;
     return 1;
@@ -807,7 +882,7 @@ int main( int argc, char** argv )
   else
     std::cout << "TruncateStore: succeeded!" << std::endl;
 
-  if( !WriteBible( object, bigbuff, biblesize ) )
+  if( !WriteBible( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "WriteBible: failed!" << std::endl;
     return 1;
@@ -815,7 +890,7 @@ int main( int argc, char** argv )
   else
     std::cout << "WriteBible: succeeded!" << std::endl;
 
-  if( !ReadTestChunk1024( object, bigbuff, biblesize ) )
+  if( !ReadTestChunk1024( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "ReadTestChunk1024: failed!" << std::endl;
     return 1;
@@ -823,7 +898,7 @@ int main( int argc, char** argv )
   else
     std::cout << "ReadTestChunk1024: succeeded!" << std::endl;
 
-  if( !ReadTestChunk3072( object, bigbuff, biblesize ) )
+  if( !ReadTestChunk3072( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "ReadTestChunk3072: failed!" << std::endl;
     return 1;
@@ -831,7 +906,7 @@ int main( int argc, char** argv )
   else
     std::cout << "ReadTestChunk3072: succeeded!" << std::endl;
 
-  if( !ReadTestChunk4096( object, bigbuff, biblesize ) )
+  if( !ReadTestChunk4096( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "ReadTestChunk4096: failed!" << std::endl;
     return 1;
@@ -839,7 +914,7 @@ int main( int argc, char** argv )
   else
     std::cout << "ReadTestChunk4096: succeeded!" << std::endl;
 
-  if( !ReadTestChunk8192( object, bigbuff, biblesize ) )
+  if( !ReadTestChunk8192( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "ReadTestChunk8192: failed!" << std::endl;
     return 1;
@@ -847,7 +922,7 @@ int main( int argc, char** argv )
   else
     std::cout << "ReadTestChunk8192: succeeded!" << std::endl;
 
-  if( !ReadTestChunk10240( object, bigbuff, biblesize ) )
+  if( !ReadTestChunk10240( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "ReadTestChunk10240: failed!" << std::endl;
     return 1;
@@ -855,7 +930,7 @@ int main( int argc, char** argv )
   else
     std::cout << "ReadTestChunk10240: succeeded!" << std::endl;
 
-  if( !ReadTestChunk16384( object, bigbuff, biblesize ) )
+  if( !ReadTestChunk16384( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "ReadTestChunk16384: failed!" << std::endl;
     return 1;
@@ -863,7 +938,7 @@ int main( int argc, char** argv )
   else
     std::cout << "ReadTestChunk16384: succeeded!" << std::endl;
 
-  if( !ReadTestAll( object, bigbuff, biblesize ) )
+  if( !ReadTestAll( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "ReadTestAll: failed!" << std::endl;
     return 1;
@@ -873,7 +948,7 @@ int main( int argc, char** argv )
 
   for( size_t i = 0; i < 100; ++i )
   {
-    if( !ReadTestRandomChunkBig( object, bigbuff, biblesize ) )
+    if( !ReadTestRandomChunkBig( object, bigbuff.get(), biblesize ) )
     {
       std::cout << i << ": ReadTestRandomChunkBig: failed!" << std::endl;
       return 1;
@@ -884,7 +959,7 @@ int main( int argc, char** argv )
 
   for( size_t i = 0; i < 100; ++i )
   {
-    if( !ReadTestRandomChunkSmall( object, bigbuff, biblesize ) )
+    if( !ReadTestRandomChunkSmall( object, bigbuff.get(), biblesize ) )
     {
       std::cout << i << ": ReadTestRandomChunkSmall: failed!" << std::endl;
       return 1;
@@ -893,7 +968,11 @@ int main( int argc, char** argv )
       std::cout << i << ": ReadTestRandomChunkSmall: succeeded!" << std::endl;
   }
 
-  if( !RandReadTestChunk_o1024_l1024( object, bigbuff, biblesize ) )
+  //----------------------------------------------------------------------
+  // Random read tests ...
+  //----------------------------------------------------------------------
+
+  if( !RandReadTestChunk_o1024_l1024( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "RandReadTestChunk_o1024_l1024: failed!" << std::endl;
     return 1;
@@ -901,7 +980,7 @@ int main( int argc, char** argv )
   else
     std::cout << "RandReadTestChunk_o1024_l1024: succeeded!" << std::endl;
 
-  if( !RandReadTestChunk_o1280_l1024( object, bigbuff, biblesize ) )
+  if( !RandReadTestChunk_o1280_l1024( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "RandReadTestChunk_o1280_l1024: failed!" << std::endl;
     return 1;
@@ -909,7 +988,7 @@ int main( int argc, char** argv )
   else
     std::cout << "RandReadTestChunk_o1280_l1024: succeeded!" << std::endl;
 
-  if( !RandReadTestChunk_o3840_l512( object, bigbuff, biblesize ) )
+  if( !RandReadTestChunk_o3840_l512( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "RandReadTestChunk_o3840_l512: failed!" << std::endl;
     return 1;
@@ -917,7 +996,7 @@ int main( int argc, char** argv )
   else
     std::cout << "RandReadTestChunk_o3840_l512: succeeded!" << std::endl;
 
-  if( !RandReadTestChunk_o3840_l1024( object, bigbuff, biblesize ) )
+  if( !RandReadTestChunk_o3840_l1024( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "RandReadTestChunk_o3840_l1024: failed!" << std::endl;
     return 1;
@@ -925,7 +1004,7 @@ int main( int argc, char** argv )
   else
     std::cout << "RandReadTestChunk_o3840_l1024: succeeded!" << std::endl;
 
-  if( !RandReadTestChunk_o1280_l8192( object, bigbuff, biblesize ) )
+  if( !RandReadTestChunk_o1280_l8192( object, bigbuff.get(), biblesize ) )
   {
     std::cout << "RandReadTestChunk_o1280_l8192: failed!" << std::endl;
     return 1;
@@ -935,7 +1014,7 @@ int main( int argc, char** argv )
 
   for( size_t i = 0; i < 100; ++i )
   {
-    if( !RandTestRandomReadBigChunk( object, bigbuff, biblesize ) )
+    if( !RandTestRandomReadBigChunk( object, bigbuff.get(), biblesize ) )
     {
       std::cout << i << ": RandTestRandomReadBigChunk: failed!" << std::endl;
       return 1;
@@ -945,7 +1024,7 @@ int main( int argc, char** argv )
 
   for( size_t i = 0; i < 100; ++i )
   {
-    if( !RandTestRandomReadSmallChunk( object, bigbuff, biblesize ) )
+    if( !RandTestRandomReadSmallChunk( object, bigbuff.get(), biblesize ) )
     {
       std::cout << i << ": RandTestRandomReadSmallChunk: failed!" << std::endl;
       return 1;
@@ -953,7 +1032,6 @@ int main( int argc, char** argv )
     std::cout << i << ": RandTestRandomReadSmallChunk: succeeded!" << std::endl;
   }
 
-  delete[] bigbuff;
   std::cout << "The End." << std::endl;
 
   return 0;

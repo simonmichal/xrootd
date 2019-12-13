@@ -11,6 +11,8 @@
 #include "XrdEc/XrdEcObjCfg.hh"
 #include "XrdEc/XrdEcUtilities.hh"
 #include "XrdEc/XrdEcScheduleHandler.hh"
+#include "XrdEc/XrdEcLogger.hh"
+#include "XrdEc/XrdEcCallbackWrapper.hh"
 
 #include "XrdCl/XrdClBuffer.hh"
 #include "XrdCl/XrdClXRootDResponses.hh"
@@ -28,7 +30,7 @@ namespace XrdEc
 {
   class RdBuff
   {
-      friend void ReadBlock( const ObjCfg&, const std::string&, const placement_group&, std::shared_ptr<RdBuff>&, XrdCl::ResponseHandler* );
+      friend void ReadBlock( const ObjCfg&, const std::string&, const placement_group&, std::shared_ptr<RdBuff>&, std::shared_ptr<CallbackWrapper>& );
 
       friend struct StrmRdCtx;
 
@@ -38,15 +40,32 @@ namespace XrdEc
       {
         this->offset = offset - ( offset % objcfg.datasize );
         this->size   = objcfg.datasize;
-        if( !buffer ) this->buffer = new char[objcfg.datasize];
+        if( !buffer )
+        {
+          this->buffer = new char[objcfg.datasize];
+          std::stringstream ss;
+          ss << __func__ << " : allocated a block of memory = " << (void*)this->buffer;
+          Logger &log = Logger::Instance();
+          log.Entry( ss.str() );
+        }
       }
+
+      RdBuff( const RdBuff& ) = delete;
+      RdBuff( RdBuff&& ) = delete;
 
       ~RdBuff()
       {
-        if( mine ) delete[] buffer;
+        if( mine )
+        {
+          std::stringstream ss;
+          ss << __func__ << " : deallocated a block of memory = " << (void*)this->buffer;
+          Logger &log = Logger::Instance();
+          log.Entry( ss.str() );
+          delete[] buffer;
+        }
       }
 
-      uint32_t Read( uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
+      uint32_t Read( uint64_t offset, uint32_t size, char *buffer, std::shared_ptr<CallbackWrapper> &callback )
       {
         // check if we can serve some of the data from our read buffer
         if( this->offset > offset ||
@@ -61,14 +80,14 @@ namespace XrdEc
         if( !ready )
         {
           // if not, register a callback for later on
-          RegisterRead( offset, size, buffer, handler );
+          RegisterRead( offset, size, buffer, callback );
           return size;
         }
         // The data are ready - unlock the mutex!
         lck.unlock();
 
         memcpy( buffer, this->buffer + buffoff, size );
-        ScheduleHandler( offset, size, buffer, handler );
+        ScheduleHandler( offset, size, buffer, callback );
         return size;
       }
 
@@ -79,20 +98,20 @@ namespace XrdEc
 
     private:
 
-      void RegisterRead( uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
+      void RegisterRead( uint64_t offset, uint32_t size, char *buffer, std::shared_ptr<CallbackWrapper> &callback )
       {
-        auto callback = [offset, size, buffer, handler, this]( const XrdCl::XRootDStatus &st )
+        auto pendrd = [offset, size, buffer, callback, this]( const XrdCl::XRootDStatus &st ) mutable
             {
               if( st.IsOK() )
               {
                 uint64_t buffoff = offset - this->offset;
                 memcpy( buffer, this->buffer + buffoff, size );
-                ScheduleHandler( offset, size, buffer, handler );
+                ScheduleHandler( offset, size, buffer, callback );
               }
               else
-                ScheduleHandler( handler, st );
+                ScheduleHandler( callback, st );
             };
-        pending_reads.emplace_back( std::move( callback ) );
+        pending_reads.emplace_back( std::move( pendrd ) );
       }
 
       void RunCallbacks( const XrdCl::XRootDStatus &st )

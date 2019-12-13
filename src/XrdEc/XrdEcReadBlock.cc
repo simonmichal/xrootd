@@ -20,8 +20,8 @@ namespace XrdEc
 {
   struct StrmRdCtx
   {
-      StrmRdCtx( const ObjCfg &objcfg, std::shared_ptr<RdBuff> &rdbuff, uint8_t nburl, XrdCl::ResponseHandler *handler ) :
-                   objcfg( objcfg ), nbnotfound( 0 ), nbok( 0 ), nberr( 0 ), nburls( nburl ), rdbuff( rdbuff ), userHandler( handler )
+      StrmRdCtx( const ObjCfg &objcfg, std::shared_ptr<RdBuff> &rdbuff, uint8_t nburl, std::shared_ptr<CallbackWrapper> &callback ) :
+                   objcfg( objcfg ), nbnotfound( 0 ), nbok( 0 ), nberr( 0 ), nburls( nburl ), rdbuff( rdbuff ), callback( callback ), done( false )
       {
         memset( rdbuff->buffer, 0, objcfg.datasize );
         paritybuff.reset( new char[objcfg.paritysize] );
@@ -36,7 +36,7 @@ namespace XrdEc
 
       void NotFound()
       {
-        std::unique_lock<std::mutex> lck( mtx );
+        std::unique_lock<std::mutex> lck( *callback );
         ++nbnotfound;
 
         std::stringstream ss;
@@ -44,24 +44,31 @@ namespace XrdEc
         Logger &log = Logger::Instance();
         log.Entry( ss.str() );
 
+        // if there's no handler it means we already reconstructed this chunk
+        // and called user handler! // TODO this is to be replaced with CallbackWrapper !!!
+        if( done || !callback->Valid() )
+        {
+          lck.unlock();
+          return;
+        }
+
         if( nbnotfound + nberr > nburls - objcfg.nbdata )
         {
           // Run potential read callbacks!!!
           rdbuff->RunCallbacks( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
 
-          if( userHandler )
-          {
-            XrdCl::ResponseHandler *handler = userHandler;
-            userHandler = 0;
-            lck.unlock();
-            handler->HandleResponse( new XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ), 0 );
-          }
+          // we don't need to check if userHandler is valid
+          // because we did this few lines before
+          XrdCl::ResponseHandler *handler = callback->Release();
+          done = true;
+          lck.unlock();
+          handler->HandleResponse( new XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ), 0 );
         }
       }
 
       void OnError()
       {
-        std::unique_lock<std::mutex> lck( mtx );
+        std::unique_lock<std::mutex> lck( *callback );
         ++nberr;
 
         std::stringstream ss;
@@ -69,24 +76,31 @@ namespace XrdEc
         Logger &log = Logger::Instance();
         log.Entry( ss.str() );
 
+        // if there's no handler it means we already reconstructed this chunk
+        // and called user handler! // TODO this is to be replaced with CallbackWrapper !!!
+        if( done || !callback->Valid() )
+        {
+          lck.unlock();
+          return;
+        }
+
         if( nbnotfound + nberr > nburls - objcfg.nbdata  )
         {
           // Run potential read callbacks!!!
           rdbuff->RunCallbacks( XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ) );
 
-          if( userHandler )
-          {
-            XrdCl::ResponseHandler *handler = userHandler;
-            userHandler = 0;
-            lck.unlock();
-            handler->HandleResponse( new XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ), 0 );
-          }
-        }
+          // we don't need to check if userHandler is valid
+          // because we did this few lines before
+          XrdCl::ResponseHandler *handler = callback->Release();
+          done = true;
+          lck.unlock();
+          handler->HandleResponse( new XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errDataError ), 0 );
+      }
       }
 
       void OnSuccess( char *buffer, uint32_t size, uint8_t strpnb, uint32_t blksize )
       {
-        std::unique_lock<std::mutex> lck( mtx );
+        std::unique_lock<std::mutex> lck( *callback );
         ++nbok;
 
         std::stringstream ss;
@@ -96,7 +110,11 @@ namespace XrdEc
 
         // if there's no handler it means we already reconstructed this chunk
         // and called user handler!
-        if( !userHandler ) return;
+        if( done || !callback->Valid() )
+        {
+          lck.unlock();
+          return;
+        }
 
         // copy to the user buffer
         memcpy( stripes[strpnb].buffer, buffer, size );
@@ -118,19 +136,18 @@ namespace XrdEc
           // Run potential read callbacks!!!
           rdbuff->RunCallbacks( XrdCl::XRootDStatus() );
 
-          if( userHandler )
-          {
-            XrdCl::ResponseHandler *handler = userHandler;
-            userHandler = 0;
-            lck.unlock();
-            XrdCl::ChunkInfo *chunk = new XrdCl::ChunkInfo();
-            chunk->buffer = rdbuff->buffer;
-            chunk->offset = rdbuff->offset;
-            chunk->length = blksize;
-            XrdCl::AnyObject *resp = new XrdCl::AnyObject();
-            resp->Set( chunk );
-            handler->HandleResponse( new XrdCl::XRootDStatus(), resp );
-          }
+          // we don't need to check if userHandler is valid
+          // because we did this few lines before
+          done = true;
+          lck.unlock();
+          XrdCl::ChunkInfo *chunk = new XrdCl::ChunkInfo();
+          chunk->buffer = rdbuff->buffer;
+          chunk->offset = rdbuff->offset;
+          chunk->length = blksize;
+          XrdCl::AnyObject *resp = new XrdCl::AnyObject();
+          resp->Set( chunk );
+          XrdCl::ResponseHandler *handler = callback->Get();
+          handler->HandleResponse( new XrdCl::XRootDStatus(), resp );
         }
       }
 
@@ -146,8 +163,9 @@ namespace XrdEc
 
       stripes_t                            stripes;
 
-      XrdCl::ResponseHandler*              userHandler;
-      std::mutex                           mtx;
+      std::shared_ptr<CallbackWrapper>     callback;
+
+      bool                                 done;
   };
 }
 
@@ -207,7 +225,7 @@ namespace
     Logger &log = Logger::Instance();
     log.Entry( ss.str() );
 
-    std::unique_lock<std::mutex> lck( ctx->mtx );
+    std::unique_lock<std::mutex> lck( *ctx->callback );
     std::shared_ptr<File> file( new File( false ) );
     std::shared_ptr<StrpData> strpdata( new StrpData( objcfg, ctx ) );
 
@@ -230,7 +248,7 @@ namespace XrdEc
   class AcrossBlkRdHandler : public XrdCl::ResponseHandler
   {
     public:
-      AcrossBlkRdHandler( const ObjCfg &objcfg, uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler ) : objcfg( objcfg ), offset( offset ), size( size ), buffer( buffer), nbrd( 0 ), nbreq( 0 ), handler( handler ), failed( false )
+      AcrossBlkRdHandler( const ObjCfg &objcfg, uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler ) : objcfg( objcfg ), offset( offset ), size( size ), buffer( buffer ), nbrd( 0 ), nbreq( 0 ), handler( handler ), failed( false )
       {
         // Note: the number of requests this handler will need to handle equals to the
         //       number of blocks one needs to read in order to satisfy the read request.
@@ -325,7 +343,7 @@ namespace XrdEc
           // size of the response data
           uint32_t rspsz  = chunk->length - rspoff;
           if( rspsz > size ) rspsz = size;
-          memcpy( buffer, (char*)chunk->buffer + rspoff, rspsz );
+          memmove( buffer, (char*)chunk->buffer + rspoff, rspsz );
           nbrd += rspsz;
         }
         else if( chunk->offset + objcfg.datasize > offset + size) // we are always trying to read the full block
@@ -376,14 +394,14 @@ namespace XrdEc
       bool                    failed;
   };
 
-  XrdCl::ResponseHandler* GetRdHandler( const ObjCfg &objcfg, uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
+  std::shared_ptr<CallbackWrapper> GetRdHandler( const ObjCfg &objcfg, uint64_t offset, uint32_t size, char *buffer, XrdCl::ResponseHandler *handler )
   {
     // check if the read size and offset are aligned exactly
     // with a block, if yes we don't need a special handler
     if( !( offset % objcfg.datasize ) && size == objcfg.datasize )
-      return handler;
+      return std::make_shared<CallbackWrapper>( handler );
 
-    return new AcrossBlkRdHandler( objcfg, offset, size, buffer, handler );
+    return std::make_shared<CallbackWrapper>( new AcrossBlkRdHandler( objcfg, offset, size, buffer, handler ) );
   }
 
   bool BlockAligned( const ObjCfg &objcfg, uint64_t offset, uint32_t size )
@@ -391,24 +409,24 @@ namespace XrdEc
     return !( offset % objcfg.datasize ) && size >= objcfg.datasize;
   }
 
-  void ReadBlock( const ObjCfg           &objcfg,
-                  const std::string      &sign,
-                  const placement_group  &plgr,
-                  uint64_t                offset,
-                  char                   *buffer,
-                  XrdCl::ResponseHandler *handler )
+  void ReadBlock( const ObjCfg                     &objcfg,
+                  const std::string                &sign,
+                  const placement_group            &plgr,
+                  uint64_t                         offset,
+                  char                             *buffer,
+                  std::shared_ptr<CallbackWrapper> &callback )
   {
     std::shared_ptr<RdBuff> rdbuff( new RdBuff( objcfg, offset, buffer ) );
-    ReadBlock( objcfg, sign, plgr, rdbuff, handler );
+    ReadBlock( objcfg, sign, plgr, rdbuff, callback );
   }
 
-  void ReadBlock( const ObjCfg            &objcfg,
-                  const std::string       &sign,
-                  const placement_group   &plgr,
-                  std::shared_ptr<RdBuff> &rdbuff,
-                  XrdCl::ResponseHandler  *handler )
+  void ReadBlock( const ObjCfg                     &objcfg,
+                  const std::string                &sign,
+                  const placement_group            &plgr,
+                  std::shared_ptr<RdBuff>          &rdbuff,
+                  std::shared_ptr<CallbackWrapper> &callback )
   {
-    std::shared_ptr<StrmRdCtx> ctx( new StrmRdCtx( objcfg, rdbuff, plgr.size(), handler ) );
+    std::shared_ptr<StrmRdCtx> ctx( new StrmRdCtx( objcfg, rdbuff, plgr.size(), callback ) );
 
     // we don't know where the chunks are so we are trying all possible locations
     for( uint8_t i = 0; i < plgr.size(); ++i )
