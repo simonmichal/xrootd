@@ -55,15 +55,17 @@ namespace XrdEc
       {
         if( this->offset + wrtbuff.GetCursor() != offset ) throw std::exception();
 
-        if( wrtbuff.GetCursor() == 0 && size >= objcfg.datasize )
-        {
-          mine = false;
-          wrtbuff.Grab( const_cast<char*>( buffer ), objcfg.datasize );
-          wrtbuff.AdvanceCursor( objcfg.datasize );
-          Encode();
-          if( size == objcfg.datasize ) ScheduleHandler( handler );
-          return objcfg.datasize;
-        }
+        // TODO : for now we comment this out as we cannot rely on the user
+        //        buffer after calling user handler !!!
+//        if( wrtbuff.GetCursor() == 0 && size >= objcfg.datasize )
+//        {
+//          mine = false;
+//          wrtbuff.Grab( const_cast<char*>( buffer ), objcfg.datasize );
+//          wrtbuff.AdvanceCursor( objcfg.datasize );
+//          Encode();
+//          if( size == objcfg.datasize ) ScheduleHandler( handler );
+//          return objcfg.datasize;
+//        }
 
         if( wrtbuff.GetSize() == 0 )
         {
