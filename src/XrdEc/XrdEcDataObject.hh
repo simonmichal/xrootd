@@ -250,7 +250,6 @@ namespace XrdEc
       {
         if( wrtbuff && !wrtbuff->Empty() )
         {
-          wrtbuff->Encode();
           wrthandler.IncCnt();
           WriteBlock( *objcfg, signature, plgr, std::move( *wrtbuff ), &wrthandler );
           wrtbuff.reset( 0 );

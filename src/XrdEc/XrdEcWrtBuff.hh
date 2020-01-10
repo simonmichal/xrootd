@@ -80,8 +80,6 @@ namespace XrdEc
         memcpy( wrtbuff.GetBufferAtCursor(), buffer, bytesAccepted );
         wrtbuff.AdvanceCursor( bytesAccepted );
 
-        if( wrtbuff.GetCursor() == objcfg.datasize ) Encode();
-
         if( bytesAccepted == size ) ScheduleHandler( handler );
 
         return bytesAccepted;
