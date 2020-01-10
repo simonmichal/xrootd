@@ -146,18 +146,6 @@ namespace XrdEc
     return '.' + std::to_string( blkid ) + '.' + std::to_string( chunkid );
   }
 
-
-  //----------------------------------------------------------------------------
-  //! Calculates checksum of given type from given buffer
-  //!
-  //! @param type   : checksum type (e.g. zcrc32)
-  //! @param buffer : buffer with data for checksumming
-  //! @param size   : size of the buffer
-  //!
-  //! @return       : the checksum in the format 'type:checksum
-  //----------------------------------------------------------------------------
-  std::string Checksum( const std::string &type, void *buffer, uint32_t size );
-
   //------------------------------------------------------------------------
   //! Find a new location (host) for given chunk. TODO (update)
   //!

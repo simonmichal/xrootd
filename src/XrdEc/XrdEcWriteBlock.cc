@@ -142,29 +142,11 @@ namespace
     Async( std::move( wrtstrp ) );
   }
 
-  std::string GetChecksum( const ObjCfg &objcfg )
+  std::string GetChecksum( const ObjCfg &objcfg ) // TODO precompute at compile time
   {
-    using namespace XrdCl;
-
-    CheckSumManager *cksMan = DefaultEnv::GetCheckSumManager();
-    XrdCksCalc *cksCalcObj = cksMan->GetCalculator( "zcrc32" );
     char buffer[objcfg.chunksize];
     memset( buffer, 0, objcfg.chunksize );
-    cksCalcObj->Update( buffer, objcfg.chunksize );
-
-    int          calcSize = 0;
-    std::string  calcType = cksCalcObj->Type( calcSize );
-
-    XrdCksData ckSum;
-    ckSum.Set( calcType.c_str() );
-    ckSum.Set( (void*)cksCalcObj->Final(), calcSize );
-    char *cksBuffer = new char[265];
-    ckSum.Get( cksBuffer, 256 );
-    std::string checkSum  = calcType + ":";
-    checkSum += Utils::NormalizeChecksum( calcType, cksBuffer );
-    delete [] cksBuffer;
-    delete cksCalcObj;
-    return checkSum;
+    return CalcChecksum( buffer, objcfg.chunksize );
   }
 
   static void WriteEmptyStripe( const ObjCfg &objcfg,

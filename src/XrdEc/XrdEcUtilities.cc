@@ -10,31 +10,18 @@
 #include "XrdEc/XrdEcUtilities.hh"
 #include "XrdCl/XrdClCheckSumManager.hh"
 #include "XrdCl/XrdClUtils.hh"
-#include "XrdCks/XrdCksCalc.hh"
+#include "XrdOuc/XrdOucCRC32C.hh"
+
+#include <sstream>
 
 namespace XrdEc
 {
   std::string CalcChecksum( const char *buffer, uint64_t size )
   {
-    using namespace XrdCl;
-
-    CheckSumManager *cksMan = DefaultEnv::GetCheckSumManager();
-    XrdCksCalc *cksCalcObj = cksMan->GetCalculator( "zcrc32" );
-    cksCalcObj->Update( buffer, size );
-
-    int          calcSize = 0;
-    std::string  calcType = cksCalcObj->Type( calcSize );
-
-    XrdCksData ckSum;
-    ckSum.Set( calcType.c_str() );
-    ckSum.Set( (void*)cksCalcObj->Final(), calcSize );
-    char *cksBuffer = new char[265];
-    ckSum.Get( cksBuffer, 256 );
-    std::string checkSum  = calcType + ":";
-    checkSum += Utils::NormalizeChecksum( calcType, cksBuffer );
-    delete [] cksBuffer;
-    delete cksCalcObj;
-    return checkSum;
+    uint32_t cksum = crc32c( 0, buffer, size );
+    std::stringstream ss;
+    ss << std::hex << cksum;
+    return "crc32c:" + ss.str();
   }
 
   LocationStatus ToLocationStatus( const std::string &str )
@@ -44,33 +31,6 @@ namespace XrdEc
     if( str == "drain" ) return drain;
     if( str == "off" ) return off;
     throw std::exception(); // TODO
-  }
-
-  //----------------------------------------------------------------------------
-  // Calculates checksum of given type from given buffer
-  //----------------------------------------------------------------------------
-  std::string Checksum( const std::string &type, void *buffer, uint32_t size )
-  {
-    using namespace XrdCl;
-
-    CheckSumManager *cksMan = DefaultEnv::GetCheckSumManager();
-    XrdCksCalc *cksCalcObj  = cksMan->GetCalculator( type );
-    cksCalcObj->Update( reinterpret_cast<const char*>( buffer ), size );
-
-    int          calcSize = 0;
-    std::string  calcType = cksCalcObj->Type( calcSize );
-
-    XrdCksData ckSum;
-    ckSum.Set( calcType.c_str() );
-    ckSum.Set( (void*)cksCalcObj->Final(), calcSize );
-    char *cksBuffer = new char[265];
-    ckSum.Get( cksBuffer, 256 );
-    std::string checkSum  = calcType + ":";
-    checkSum += Utils::NormalizeChecksum( calcType, cksBuffer );
-    delete [] cksBuffer;
-    delete cksCalcObj;
-
-    return checkSum;
   }
 
   //------------------------------------------------------------------------
