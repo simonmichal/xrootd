@@ -55,18 +55,6 @@ namespace XrdEc
       {
         if( this->offset + wrtbuff.GetCursor() != offset ) throw std::exception();
 
-        // TODO : for now we comment this out as we cannot rely on the user
-        //        buffer after calling user handler !!!
-//        if( wrtbuff.GetCursor() == 0 && size >= objcfg.datasize )
-//        {
-//          mine = false;
-//          wrtbuff.Grab( const_cast<char*>( buffer ), objcfg.datasize );
-//          wrtbuff.AdvanceCursor( objcfg.datasize );
-//          Encode();
-//          if( size == objcfg.datasize ) ScheduleHandler( handler );
-//          return objcfg.datasize;
-//        }
-
         if( wrtbuff.GetSize() == 0 )
         {
           mine = true;
@@ -102,7 +90,7 @@ namespace XrdEc
         return;
       }
 
-      void* GetChunk( uint8_t strpnb )
+      char* GetChunk( uint8_t strpnb )
       {
         return stripes[strpnb].buffer;
       }
@@ -136,11 +124,6 @@ namespace XrdEc
       uint64_t GetBlkNb()
       {
         return offset / objcfg.datasize;
-      }
-
-      std::string GetChecksum( uint8_t strpnb )
-      {
-        return CalcChecksum( stripes[strpnb].buffer, objcfg.chunksize );
       }
 
       inline uint32_t GetBlkSize()

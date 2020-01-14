@@ -7,6 +7,8 @@
 
 #include "XrdCl/XrdClJobManager.hh"
 
+#include <future>
+
 
 #ifndef SRC_XRDEC_XRDECTHREADPOOL_HH_
 #define SRC_XRDEC_XRDECTHREADPOOL_HH_
@@ -39,20 +41,33 @@ namespace XrdEc
       };
 
       template <typename FUNC, typename TUPL, int ... INDICES>
-      inline static void tuple_call_impl( FUNC &f, TUPL &args, sequence<INDICES...> )
+      inline static auto tuple_call_impl( FUNC &func, TUPL &args, sequence<INDICES...> )
       {
-          f( std::move( std::get<INDICES>( args ) )... );
+          return func( std::move( std::get<INDICES>( args ) )... );
       }
 
       template <typename FUNC, typename ... ARGs>
-      inline static void tuple_call( FUNC &f, std::tuple<ARGs...> &tup )
+      inline static auto tuple_call( FUNC &func, std::tuple<ARGs...> &tup )
       {
-          tuple_call_impl( f, tup, typename seq_gen<sizeof...(ARGs)>::type{} );
+          return tuple_call_impl( func, tup, typename seq_gen<sizeof...(ARGs)>::type{} );
       }
 
-      template<typename FUNC, typename ... ARGs>
+      template<typename FUNC, typename RET, typename ... ARGs>
       class AnyJob : public XrdCl::Job
       {
+
+          static inline void RunImpl( FUNC func, std::tuple<ARGs...> &args, std::promise<void> &prms )
+          {
+            tuple_call( func, args );
+            prms.set_value();
+          }
+
+          template<typename RETURN>
+          static inline void RunImpl( FUNC func, std::tuple<ARGs...> &args, std::promise<RETURN> &prms )
+          {
+            prms.set_value( tuple_call( func, args ) );
+          }
+
         public:
 
           AnyJob( FUNC func, ARGs... args ) : func( std::move( func ) ),
@@ -62,14 +77,20 @@ namespace XrdEc
 
           void Run( void *arg )
           {
-            tuple_call( func, args );
+            RunImpl( this->func, this->args, this->prms );
             delete this;
           }
 
-        private:
+          std::future<RET> GetFuture()
+          {
+            return prms.get_future();
+          }
+
+        protected:
 
           FUNC                func;
           std::tuple<ARGs...> args;
+          std::promise<RET>   prms;
       };
 
     public:
@@ -87,15 +108,18 @@ namespace XrdEc
       }
 
       template<typename FUNC, typename ... ARGs>
-      inline void Execute( FUNC func, ARGs... args )
+      inline auto Execute( FUNC func, ARGs... args )
       {
-        AnyJob<FUNC, ARGs...> *job = new AnyJob<FUNC, ARGs...>( func, std::move( args )... );
+        using RET = typename std::result_of<FUNC(ARGs...)>::type;
+        AnyJob<FUNC, RET, ARGs...> *job = new AnyJob<FUNC, RET, ARGs...>( func, std::move( args )... );
+        std::future<RET> ftr = job->GetFuture();
         threadpool.QueueJob( job, nullptr );
+        return std::move( ftr );
       }
 
     private:
 
-      ThreadPool() : threadpool( 16 )
+      ThreadPool() : threadpool( 64 )
       {
         threadpool.Initialize();
         threadpool.Start();

@@ -111,7 +111,8 @@ namespace
 
   static void WriteStripe( const ObjCfg                &objcfg,
                            uint8_t                      strpnb,
-                           std::shared_ptr<StrmWrtCtx>  ctx    )
+                           const std::string           &checksum,
+                           std::shared_ptr<StrmWrtCtx>  ctx       )
   {
     using namespace XrdCl;
 
@@ -120,7 +121,6 @@ namespace
     XrdCl::OpenFlags::Flags flags = ctx->wrtbuff.GetWrtMode() == WrtMode::New ? OpenFlags::New : OpenFlags::Delete;
     flags |= OpenFlags::Write | OpenFlags::POSC;
     std::string url = ctx->placement[strpnb] + '/' + ctx->blkname;
-    std::string checksum = ctx->wrtbuff.GetChecksum( strpnb );
 
     std::stringstream ss;
     ss << "WriteStripe (StrmWrtCtx = " << ctx.get() << ") : url = " << url;
@@ -133,10 +133,10 @@ namespace
                                  SetXAttr( file.get(), "xrdec.checksum", checksum ),
                                  SetXAttr( file.get(), "xrdec.blksize", std::to_string( ctx->wrtbuff.GetBlkSize() ) ),
                                  SetXAttr( file.get(), "xrdec.strpnb", std::to_string( strpnb ) ) )
-                     | Close( file.get() ) >> [file, strpnb, ctx, objcfg]( XRootDStatus &st )
+                     | Close( file.get() ) >> [file, strpnb, ctx, objcfg, checksum]( XRootDStatus &st )
                          {
                            if( ctx->Retry( st, strpnb ) )
-                             WriteStripe( objcfg, strpnb, ctx );
+                             WriteStripe( objcfg, strpnb, checksum, ctx );
                            else
                              ctx->Handle( st, strpnb );
                          };
@@ -201,6 +201,15 @@ namespace XrdEc
     placement_t placement = GeneratePlacement( blkname, blkname, plgr, true );
     blkname += "?ost.sig=" + sign;
 
+    std::vector<std::future<std::string>> checksums;
+    checksums.reserve( objcfg.nbchunks );
+
+    for( uint8_t strpnb = 0; strpnb < objcfg.nbchunks; ++strpnb )
+    {
+      std::future<std::string> ftr = ThreadPool::Instance().Execute( CalcChecksum, wrtbuff.GetChunk( strpnb ), objcfg.chunksize );
+      checksums.emplace_back( std::move( ftr ) );
+    }
+
     std::shared_ptr<StrmWrtCtx> ctx( new StrmWrtCtx( std::move( wrtbuff ),
                                                      objcfg,
                                                      std::move( blkname ),
@@ -209,7 +218,7 @@ namespace XrdEc
                                                      handler ) );
 
     for( uint8_t strpnb = 0; strpnb < objcfg.nbchunks; ++strpnb )
-      WriteStripe( objcfg, strpnb, ctx );
+      WriteStripe( objcfg, strpnb, checksums[strpnb].get(), ctx );
   }
 
   void CreateEmptyBlock( const ObjCfg           &objcfg,
