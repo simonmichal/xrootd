@@ -39,7 +39,16 @@ namespace XrdEc
       {
       }
 
-      ObjCfg( ObjCfg &&objcfg ) = delete;
+      ObjCfg( ObjCfg &&objcfg ) : obj( std::move( objcfg.obj ) ),
+                                  nbchunks( objcfg.nbchunks ),
+                                  nbparity( objcfg.nbparity ),
+                                  nbdata( objcfg.nbdata ),
+                                  datasize( objcfg.datasize ),
+                                  chunksize( objcfg.chunksize ),
+                                  paritysize( objcfg.paritysize ),
+                                  blksize( objcfg.blksize )
+      {
+      }
 
       const std::string obj;
       const uint8_t     nbchunks;   // number of chunks in block

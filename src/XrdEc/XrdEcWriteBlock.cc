@@ -9,13 +9,14 @@
 #include "XrdEc/XrdEcWrtBuff.hh"
 #include "XrdCl/XrdClFileOperations.hh"
 #include "XrdCl/XrdClParallelOperation.hh"
-#include "XrdCl/XrdClJobManager.hh"
+#include "XrdEc/XrdEcThreadPool.hh"
 #include "XrdEc/XrdEcLogger.hh"
 
 #include <memory>
 #include <mutex>
 #include <atomic>
 #include <algorithm>
+#include <tuple>
 
 namespace
 {
@@ -230,75 +231,6 @@ namespace XrdEc
       WriteEmptyStripe( objcfg, strpnb, ctx );
   }
 
-  class WrtPool
-  {
-      class WriteJob : public XrdCl::Job
-      {
-        public:
-
-          WriteJob( const XrdEc::ObjCfg           &objcfg,
-                    const std::string             &sign,
-                    const XrdEc::placement_group  &plgr,
-                    XrdEc::WrtBuff               &&wrtbuff,
-                    XrdCl::ResponseHandler        *handler ) : objcfg( objcfg ),
-                                                               sign( sign ),
-                                                               plgr( plgr ),
-                                                               wrtbuff( std::move( wrtbuff ) ),
-                                                               handler( handler )
-          {
-
-          }
-
-          void Run( void *arg )
-          {
-            WriteBlockImpl( objcfg, sign, plgr, std::move( wrtbuff ), handler );
-            delete this;
-          }
-
-        private:
-
-          const XrdEc::ObjCfg           objcfg;
-          const std::string             sign;
-          const XrdEc::placement_group  plgr;
-          XrdEc::WrtBuff                wrtbuff;
-          XrdCl::ResponseHandler       *handler;
-      };
-
-    public:
-
-      ~WrtPool()
-      {
-        threadpool.Stop();
-        threadpool.Finalize();
-      }
-
-      void WriteBlock( const XrdEc::ObjCfg           &objcfg,
-                       const std::string             &sign,
-                       const XrdEc::placement_group  &plgr,
-                       XrdEc::WrtBuff               &&wrtbuff,
-                       XrdCl::ResponseHandler        *handler )
-      {
-        WriteJob *job = new WriteJob( objcfg, sign, plgr, std::move( wrtbuff ), handler );
-        threadpool.QueueJob( job, 0 );
-      }
-
-      static WrtPool& Instance()
-      {
-        static WrtPool pool;
-        return pool;
-      }
-
-    private:
-
-      WrtPool() : threadpool( 16 ) // should be configurable !!!
-      {
-        threadpool.Initialize();
-        threadpool.Start();
-      }
-
-      XrdCl::JobManager threadpool;
-  };
-
   void WriteBlock( const ObjCfg           &objcfg,
                    const std::string      &sign,
                    const placement_group  &plgr,
@@ -306,7 +238,7 @@ namespace XrdEc
                    XrdCl::ResponseHandler *handler )
   {
     // execute in separate thread as erasure coding and checksuming is CPU heavy
-    WrtPool::Instance().WriteBlock( objcfg, sign, plgr, std::move( wrtbuff ), handler );
+    ThreadPool::Instance().Execute( WriteBlockImpl, objcfg, sign, plgr, std::move( wrtbuff ), handler );
   }
 
 
