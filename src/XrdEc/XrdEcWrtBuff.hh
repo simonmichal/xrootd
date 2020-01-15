@@ -19,28 +19,92 @@
 #include <utility>
 #include <vector>
 #include <functional>
-
+#include <condition_variable>
+#include <mutex>
 #include <iostream>
 
 namespace XrdEc
 {
+  class BufferPool
+  {
+    public:
+
+      static BufferPool& Instance()
+      {
+        static BufferPool instance;
+        return instance;
+      }
+
+      XrdCl::Buffer Create( const ObjCfg &objcfg )
+      {
+        std::unique_lock<std::mutex> lck( mtx );
+
+        if( !pool.empty() )
+        {
+          XrdCl::Buffer buffer( std::move( pool.front() ) );
+          pool.pop();
+          return std::move( buffer );
+        }
+
+        if( currentsize < totalsize )
+        {
+          XrdCl::Buffer buffer( objcfg.blksize );
+          ++currentsize;
+          return std::move( buffer );
+        }
+
+        while( pool.empty() ) cv.wait( lck );
+
+        XrdCl::Buffer buffer( std::move( pool.front() ) );
+        pool.pop();
+        return std::move( buffer );
+      }
+
+      void Recycle( XrdCl::Buffer && buffer )
+      {
+        if( !buffer.GetBuffer() ) return;
+        std::unique_lock<std::mutex> lck( mtx );
+        buffer.SetCursor( 0 );
+        pool.emplace( std::move( buffer ) );
+        cv.notify_all();
+      }
+
+    private:
+
+      BufferPool() : totalsize( 1024 ), currentsize( 0 )
+      {
+      }
+
+
+      BufferPool( const BufferPool& ) = delete;
+      BufferPool( BufferPool&& ) = delete;
+
+      BufferPool& operator=( const BufferPool& ) = delete;
+      BufferPool& operator=( BufferPool&& ) = delete;
+
+      const size_t               totalsize;
+      size_t                     currentsize;
+      std::condition_variable    cv;
+      std::mutex                 mtx;
+      std::queue<XrdCl::Buffer>  pool;
+  };
+
   enum WrtMode { New, Overwrite };
 
   class WrtBuff
   {
     public:
 
-      WrtBuff( const ObjCfg &objcfg, uint64_t offset, WrtMode mode ) : objcfg( objcfg ), mine( true ), paritybuff( objcfg.paritysize ), wrtmode( mode )
+      WrtBuff( const ObjCfg &objcfg, uint64_t offset, WrtMode mode ) : objcfg( objcfg ), wrtbuff( BufferPool::Instance().Create( objcfg ) ), wrtmode( mode )
       {
         this->offset = offset - ( offset % objcfg.datasize );
         stripes.reserve( objcfg.nbchunks );
+        memset( wrtbuff.GetBuffer(), 0, wrtbuff.GetSize() );
       }
 
       WrtBuff( WrtBuff && wrtbuff ) : objcfg( wrtbuff.objcfg ),
                                       offset( wrtbuff.offset ),
                                       wrtbuff( std::move( wrtbuff.wrtbuff ) ),
-                                      mine( wrtbuff.mine ),
-                                      paritybuff( std::move( wrtbuff.paritybuff ) ),
                                       stripes( std::move( wrtbuff.stripes ) ),
                                       wrtmode( wrtbuff.wrtmode )
       {
@@ -48,19 +112,12 @@ namespace XrdEc
 
       ~WrtBuff()
       {
-        if( !mine ) wrtbuff.Release();
+        BufferPool::Instance().Recycle( std::move( wrtbuff ) );
       }
 
       uint32_t Write( uint64_t offset, uint32_t size, const char *buffer, XrdCl::ResponseHandler *handler )
       {
         if( this->offset + wrtbuff.GetCursor() != offset ) throw std::exception();
-
-        if( wrtbuff.GetSize() == 0 )
-        {
-          mine = true;
-          wrtbuff.Allocate( objcfg.datasize );
-          memset( wrtbuff.GetBuffer(), 0, wrtbuff.GetSize() );
-        }
 
         uint64_t bytesAccepted = size;
         if( wrtbuff.GetCursor() + bytesAccepted > objcfg.datasize )
@@ -83,7 +140,6 @@ namespace XrdEc
         }
 
         // otherwise we allocate the buffer and set the cursor
-        mine = true;
         wrtbuff.Allocate( objcfg.datasize );
         memset( wrtbuff.GetBuffer(), 0, wrtbuff.GetSize() );
         wrtbuff.SetCursor( size );
@@ -143,12 +199,9 @@ namespace XrdEc
 
       inline void Encode()
       {
-
         uint8_t i ;
-        for( i = 0; i < objcfg.nbdata; ++i )
-          stripes.emplace_back( wrtbuff.GetBuffer( i * objcfg.chunksize ), true );
-        for( i = 0; i < objcfg.nbparity; ++i )
-          stripes.emplace_back( paritybuff.GetBuffer( i * objcfg.chunksize ), false );
+        for( i = 0; i < objcfg.nbchunks; ++i )
+          stripes.emplace_back( wrtbuff.GetBuffer( i * objcfg.chunksize ), i < objcfg.nbdata );
         Config &cfg = Config::Instance();
         cfg.GetRedundancy( objcfg ).compute( stripes );
       }
@@ -168,11 +221,10 @@ namespace XrdEc
       ObjCfg         objcfg;
       uint64_t       offset;
       XrdCl::Buffer  wrtbuff;
-      bool           mine;
-      XrdCl::Buffer  paritybuff;
       stripes_t      stripes;
       WrtMode        wrtmode;
   };
+
 
 } /* namespace XrdEc */
 
