@@ -136,4 +136,40 @@ set_target_properties(
 add_dependencies( ${LIB_XRD_EC} isa-l )
 
 
+#-------------------------------------------------------------------------------
+# The XrdEc2 shared library
+#-------------------------------------------------------------------------------
+add_library(
+  XrdEc2
+  SHARED
+  v2zip/XrdEcDataObject.hh           v2zip/XrdEcDataObject.cc
+  v2zip/XrdEcConfig.hh
+  v2zip/XrdEcObjCfg.hh
+  v2zip/XrdEcRedundancyProvider.hh   v2zip/XrdEcRedundancyProvider.cc 
+  v2zip/XrdEcUtilities.hh            v2zip/XrdEcUtilities.cc
+  v2zip/XrdEcScheduleHandler.hh      v2zip/XrdEcScheduleHandler.cc
+  v2zip/XrdEcWrtBuff.hh
+  v2zip/XrdEcZipUtilities.hh
+  v2zip/XrdEcThreadPool.hh
+)
+
+target_link_libraries(
+  XrdEc2
+  XrdPosix
+  XrdCl
+  XrdUtils
+  isal
+)
+
+set_target_properties(
+  XrdEc2
+  PROPERTIES
+  INTERFACE_LINK_LIBRARIES ""
+  LINK_INTERFACE_LIBRARIES ""
+  VERSION   ${XRD_EC_VERSION}
+  SOVERSION ${XRD_EC_SOVERSION} )
+  
+add_dependencies( XrdEc2 isa-l )
+
+
 
