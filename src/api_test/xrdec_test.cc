@@ -78,7 +78,7 @@ inline std::default_random_engine& GetGenerator()
 {
   // 2688813254
 
-  static unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+  static unsigned seed = 3077741103;//std::chrono::system_clock::now().time_since_epoch().count();
   static std::default_random_engine generator( seed );
   static bool print = false;
   if( !print )
@@ -967,6 +967,8 @@ int main( int argc, char** argv )
     else
       std::cout << i << ": ReadTestRandomChunkSmall: succeeded!" << std::endl;
   }
+
+  return 0;
 
   //----------------------------------------------------------------------
   // Random read tests ...

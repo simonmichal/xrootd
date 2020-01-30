@@ -36,4 +36,19 @@ target_link_libraries(
   ${OPENSSL_LIBRARIES}
   pthread )
   
+add_executable(
+  xrdec2_test
+  xrdec2_test.cc )
+  
+target_link_libraries(
+  xrdec2_test
+  XrdCl
+  XrdPosix
+  XrdXml
+  XrdAppUtils
+  XrdEc2
+  uuid
+  dl
+  pthread )
+
 endif()

@@ -179,8 +179,7 @@ namespace XrdEc2
 
     for( uint8_t strpnb = 0; strpnb < objcfg->nbchunks; ++strpnb )
     {
-      char *buff = wrtbuff->GetChunk( strpnb );
-      if( !buff ) std::cout << "Kaboom!" << std::endl;
+//      char *buff = wrtbuff->GetChunk( strpnb );
       std::future<uint32_t> ftr = ThreadPool::Instance().Execute( crc32c, 0, wrtbuff->GetChunk( strpnb ), objcfg->chunksize );
       checksums.emplace_back( std::move( ftr ) );
     }
@@ -197,11 +196,11 @@ namespace XrdEc2
       uint32_t offset = offsets[i].fetch_add( wrtctx->total_size );
       writes.emplace_back( XrdCl::WriteV( files[i], offset, wrtctx->iov, wrtctx->iovcnt ) >> [wrtctx]( XrdCl::XRootDStatus& ){ } ); // TODO fallback to spare if fails !!!
       // create respective CDH record
-      dirs[i].Add( fn, objcfg->chunksize, checksum, offset );
+      dirs[i].Add( fn, objcfg->chunksize, checksum, offset ); // TODO this needs to be thread safe !!!
     }
 
     std::shared_ptr<WrtBuff> pend_buff = std::move( wrtbuff );
-    pending_wrts.emplace( XrdCl::Async( XrdCl::Parallel( writes ) >> [pend_buff]( XrdCl::XRootDStatus& ){ } ) );
+    pending_wrts.emplace( XrdCl::Async( XrdCl::Parallel( writes ) >> [pend_buff]( XrdCl::XRootDStatus& ){ } ) ); // TODO this needs to be thread safe !!!
   }
 
   void DataObject::CloseAfterWrite( XrdCl::ResponseHandler *handler )
@@ -224,7 +223,7 @@ namespace XrdEc2
     auto metactx = std::make_shared<MetaDataCtx>( objcfg.get(), dirs );
     std::vector<XrdCl::Pipeline> put_metadata;
 
-    for( size_t i = 0; i < 1/*size*/; ++i )
+    for( size_t i = 0; i < size; ++i )
     {
       auto file = std::make_shared<XrdCl::File>();
       std::string url = objcfg->plgr[i] + objcfg->obj + ".metadata.zip";

@@ -73,6 +73,15 @@ namespace XrdEc2
 
       void Write( uint64_t offset, uint32_t size, const void *buffer, XrdCl::ResponseHandler *handler );
 
+      void Flash()
+      {
+        while( !pending_wrts.empty() )
+        {
+          pending_wrts.front().wait();
+          pending_wrts.pop();
+        }
+      }
+
       void Read( uint64_t offset, uint32_t size, void *buffer, XrdCl::ResponseHandler *handler );
 
       void Sync( XrdCl::ResponseHandler *handler );

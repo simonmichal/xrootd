@@ -42,7 +42,7 @@ set( ISAL_HEADERS
 set( ISAL_LIBS 
      ${ISAL_BUILDDIR}/.libs/libisal.so 
      ${ISAL_BUILDDIR}/.libs/libisal.so.2 
-     ${ISAL_BUILDDIR}/.libs/libisal.so.2.0.28
+     ${ISAL_BUILDDIR}/.libs/libisal.so.2.0.29
 )
 
 ExternalProject_add(
