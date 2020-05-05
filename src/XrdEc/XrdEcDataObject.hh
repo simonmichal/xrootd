@@ -1,343 +1,307 @@
 /*
- * XrdEcStore.hh
+ * XrdEcDataObject.hh
  *
- *  Created on: Dec 3, 2018
+ *  Created on: Jan 23, 2020
  *      Author: simonm
  */
 
-#ifndef SRC_XRDEC_XRDECDATAOBJECT_HH_
-#define SRC_XRDEC_XRDECDATAOBJECT_HH_
+#ifndef SRC_API_TEST_XRDECDATAOBJECT_HH_
+#define SRC_API_TEST_XRDECDATAOBJECT_HH_
 
-#include "XrdEc/XrdEcReadBlock.hh"
-#include "XrdEc/XrdEcRandomRead.hh"
-#include "XrdEc/XrdEcWriteBlock.hh"
-#include "XrdEc/XrdEcWrtBuff.hh"
-#include "XrdEc/XrdEcRdBuff.hh"
-#include "XrdEc/XrdEcScheduleHandler.hh"
-#include "XrdEc/XrdEcTruncate.hh"
-
-#include "XrdEc/XrdEcEosAdaptor.hh"
-#include "XrdEc/XrdEcConfig.hh"
-#include "XrdEc/XrdEcLogger.hh"
 #include "XrdEc/XrdEcObjCfg.hh"
+#include "XrdEc/XrdEcWrtBuff.hh"
+#include "XrdEc/XrdEcZipUtilities.hh"
+#include "XrdEc/XrdEcStrmWriter.hh"
+#include "XrdEc/XrdEcObjInterfaces.hh"
 
-#include "XrdCl/XrdClXRootDResponses.hh"
+#include "XrdOuc/XrdOucCRC32C.hh"
 
-#include <string>
+#include "XrdCl/XrdClFile.hh"
+#include "XrdCl/XrdClBuffer.hh"
+
+
 #include <vector>
-#include <memory>
+#include <string>
 #include <future>
+#include <memory>
 #include <atomic>
-#include <mutex>
+#include <list>
+#include <unordered_map>
+#include <tuple>
 
-#include <sstream>
+namespace XrdCl
+{
+  class ResponseHandler;
+}
 
 namespace XrdEc
 {
-
   class DataObject
   {
-      class StrmWrtHandler : public XrdCl::ResponseHandler
-      {
-        public:
-
-          StrmWrtHandler() : wrtcnt( 0 ), handler( 0 )
-          {
-          }
-
-          void HandleResponse( XrdCl::XRootDStatus *st, XrdCl::AnyObject *rsp )
-          {
-            std::unique_lock<std::mutex> lck( mtx );
-            --wrtcnt;
-
-            std::stringstream ss;
-            ss << "StrmWrtHandler::HandleResponse (" << (void*)this << ") : wrtcnt = " << wrtcnt << ", st = " << ( st->IsOK() ? "OK" : "FAILED" );
-            Logger &log = Logger::Instance();
-            log.Entry( ss.str() );
-
-            if( !st->IsOK() && status.IsOK() )
-              status = *st;
-            delete st;
-
-            if( wrtcnt == 0 && handler )
-            {
-              handler->HandleResponse( new XrdCl::XRootDStatus( status ), 0 );
-              handler = 0;
-            }
-          }
-
-          XrdCl::XRootDStatus GetStatus()
-          {
-            std::unique_lock<std::mutex> lck( mtx );
-            return status;
-          }
-
-          void IncCnt()
-          {
-            std::unique_lock<std::mutex> lck( mtx );
-            ++wrtcnt;
-          }
-
-          void AddHandler( XrdCl::ResponseHandler *hndlr )
-          {
-            std::unique_lock<std::mutex> lck( mtx );
-            if( wrtcnt > 0 )
-            {
-              handler = hndlr;
-              return;
-            }
-
-            ScheduleHandler( hndlr, status );
-          }
-
-        private:
-
-          XrdCl::XRootDStatus     status;
-          std::mutex              mtx;
-          uint32_t                wrtcnt;
-          XrdCl::ResponseHandler *handler;
-      };
-
     public:
 
-      DataObject( const std::string &url, uint64_t size ) : url( url ), objsize( size ) // this should throw if EOS does not give as an object name TODO
+      DataObject() : mode( None )
       {
-        MgmFeedback feedback = EosAdaptor::ResolveDummy( url, Config::Instance().headnode );
-        objname   = std::move( feedback.objname );
-        plgr      = std::move( feedback.plgr );
-        signature = std::move( feedback.signature );
-
-        // construct the object configuration
-        objcfg.reset( new ObjCfg( objname ) );
       }
 
       virtual ~DataObject()
       {
       }
 
-      void StrmRead( uint64_t offset, uint32_t size, void *buffer, XrdCl::ResponseHandler *handler )
+      inline void Open( const ObjCfg &objcfg, OpenMode mode, XrdCl::ResponseHandler *handler )
       {
-        char *buff = reinterpret_cast<char*>( buffer );
+        this->objcfg.reset( new ObjCfg( objcfg ) );
+        this->mode = mode;
 
-        // check if we are not reading past the end of the file
-        if( offset >= objsize )
+        if( mode == OpenMode::StrmWrtMode )
         {
-          ScheduleHandler( offset, 0, buff, handler );
-          return;
-        }
-
-        // adjust the read size
-        if( offset + size > objsize )
-          size = objsize - offset;
-
-        auto rdHandler = GetRdHandler( *objcfg, offset, size, buff, handler );
-
-        while( size > 0 )
-        {
-          // if the user issued a read that is aligned with our block size
-          // we can read directly into the user buffer
-          if( BlockAligned( *objcfg, offset, size ) )
-          {
-            ReadBlock( *objcfg, signature, plgr, offset, buff, rdHandler );
-            size   -= objcfg->datasize;
-            offset += objcfg->datasize;
-            buff   += objcfg->datasize;
-          }
-          else
-          {
-            if( rdbuff && rdbuff->HasData( offset ))
-            {
-              // if the read buffer is not empty simply read the data from the buffer
-              uint32_t nbrd = rdbuff->Read( offset, size, buff, rdHandler );
-              size   -= nbrd;
-              offset += nbrd;
-              buff   += nbrd;
-            }
-            else
-            {
-              // create a new read buffer if it doesn't exist or if it doesn't contain
-              // data that we are interested in
-              rdbuff.reset( new RdBuff( *objcfg, offset ) );
-              // otherwise read out a new block into the read buffer
-              // (the handler will copy the data into user buffer)
-              ReadBlock( *objcfg, signature, plgr, rdbuff, rdHandler );
-              uint32_t nbrd = objcfg->datasize;
-              if( nbrd > size ) nbrd = size;
-              size   -= nbrd;
-              offset += nbrd;
-              buff   += nbrd;
-            }
-          }
+          operation.reset( new StrmWriter( objcfg ) );
+          operation->Open( handler );
+//          OpenForWrite( handler );
+//          size_t size = objcfg.plgr.size();
+//          offsets.reset( new std::atomic<uint32_t>[size] );
+//          std::fill( offsets.get(), offsets.get() + size, 0 );
+//          dirs.reserve( size );
+//          for( size_t i = 0; i < size; ++i )
+//            dirs.emplace_back( &objcfg );
         }
       }
 
-
-      void RandomRead( uint64_t offset, uint32_t size, void *buffer, XrdCl::ResponseHandler *handler )
+      void Write( uint64_t offset, uint32_t size, const void *buffer, XrdCl::ResponseHandler *handler )
       {
-        char *buff = reinterpret_cast<char*>( buffer );
-
-        // check if we are not reading past the end of the file
-        if( offset >= objsize )
-        {
-          ScheduleHandler( offset, 0, buff, handler );
-          return;
-        }
-
-        // adjust the read size
-        if( offset + size > objsize )
-          size = objsize - offset;
-
-        uint64_t firstblk  = offset / objcfg->datasize;
-        uint64_t blkoff    = offset - firstblk * objcfg->datasize;
-        uint32_t nbrd      = 0;
-        uint32_t left      = size;
-        RandRdHandler *rdHandler = new RandRdHandler( *objcfg, offset, size, buff, handler );
-        std::shared_ptr<CallbackWrapper> rdCallback( new CallbackWrapper( rdHandler ) );
-
-        for( uint64_t blknb = firstblk; nbrd < size; ++blknb )
-        {
-          uint32_t blkrdsize = left;
-          if( blkrdsize > objcfg->datasize - blkoff )
-            blkrdsize = objcfg->datasize - blkoff;
-          ReadFromBlock( objname, signature, plgr, offset, blkrdsize, buff, rdCallback );
-          nbrd   += blkrdsize;
-          offset += blkrdsize;
-          buff   += blkrdsize;
-          left   -= blkrdsize;
-          blkoff  = 0;
-        }
+        operation->Write( offset, size, buffer, handler );
       }
 
-
-      void StrmWrite( uint64_t offset, uint32_t size, const void *buffer, XrdCl::ResponseHandler *handler )
+      void Read( uint64_t offset, uint32_t size, void *buffer, XrdCl::ResponseHandler *handler )
       {
-        XrdCl::XRootDStatus st = wrthandler.GetStatus();
-        if( !st.IsOK() )
-        {
-          ScheduleHandler( handler, st );
-          return;
-        }
-
-        if( offset > objsize ) HandleSparseWrite( offset );
-
-        const char *buff = reinterpret_cast<const char*>( buffer );
-        uint32_t wrtsize = size;
-        WrtMode  mode    = offset < objsize ? WrtMode::Overwrite : WrtMode::New;
-        if( !wrtbuff ) wrtbuff.reset( new WrtBuff( *objcfg, offset, mode ) );
-
-        while( wrtsize > 0 )
-        {
-          uint64_t written = wrtbuff->Write( offset, wrtsize, buff, handler );
-          offset  += written;
-          buff    += written;
-          wrtsize -= written;
-
-          if( wrtbuff->Complete() )
-          {
-            wrthandler.IncCnt();
-            WriteBlock( *objcfg, signature, plgr, std::move( *wrtbuff ),  &wrthandler );
-            WrtMode  mode = offset < objsize ? WrtMode::Overwrite : WrtMode::New;
-            wrtbuff.reset( new WrtBuff( *objcfg, offset, mode ) );
-          }
-        }
-
-        // Update object size (offset points now at the end of the current write request).
-        if( offset > objsize )
-          objsize = offset;
+        operation->Read( offset, size, buffer, handler );
       }
 
-      inline void Flush()
+      void Close( XrdCl::ResponseHandler *handler )
       {
-        if( wrtbuff && !wrtbuff->Empty() )
-        {
-          wrthandler.IncCnt();
-          WriteBlock( *objcfg, signature, plgr, std::move( *wrtbuff ), &wrthandler );
-          wrtbuff.reset( 0 );
-        }
-      }
-
-      inline void Sync( XrdCl::ResponseHandler *handler )
-      {
-        wrthandler.AddHandler( handler );
-      }
-
-      void Truncate( uint64_t size, XrdCl::ResponseHandler *handler )
-      {
-        if( size < objsize )
-        {
-          uint64_t lastblk  = size - ( size % objcfg->datasize );
-          uint32_t lastsize = size - lastblk;
-          TruncateHandler* hndlr = new TruncateHandler( *objcfg, objsize, size, handler );
-
-          if( lastsize > 0 )
-          {
-            TruncateBlock( *objcfg, signature, plgr, lastblk / objcfg->datasize, lastsize, hndlr );
-            lastblk += objcfg->datasize;
-          }
-
-          for( uint64_t blk = lastblk; blk < objsize; blk += objcfg->datasize )
-            RemoveBlock( *objcfg, signature, plgr, blk / objcfg->datasize, hndlr );
-
-          objsize = size;
-        }
-        else if( size > objsize )
-        {
-          // TODO
-          // growing the file
-          ScheduleHandler( handler, XrdCl::XRootDStatus( XrdCl::stError, XrdCl::errNotSupported ) );
-        }
-        else
-          ScheduleHandler( handler );
+        operation->Close( handler );
       }
 
     private:
 
-      void HandleSparseWrite( uint64_t offset )
+      struct WrtCtx
       {
-        uint64_t lastblk = offset - ( offset % objcfg->datasize );
-
-        // check if the data go to the current write-buffer
-        if( wrtbuff && wrtbuff->GetOffset() == lastblk )
+        WrtCtx( uint32_t size, uint32_t checksum, const std::string &fn, const void *buffer, uint32_t bufflen ) : lfh( size, checksum, fn.size() ), fn( fn), buffer( buffer ), bufflen( bufflen ), total_size( 0 )
         {
-          // if yes, simply add padding
-          wrtbuff->Pad( offset - wrtbuff->GetOffset() - wrtbuff->GetBlkSize() );
-          return;
+          iov[0].iov_base = lfh.get_buff();
+          iov[0].iov_len  = LFH::size;
+          total_size     += LFH::size;
+
+          iov[1].iov_base = (void*)fn.c_str();
+          iov[1].iov_len  = fn.size();
+          total_size     += fn.size();
+
+          iov[2].iov_base = (void*)buffer;
+          iov[2].iov_len  = bufflen;
+          total_size     += bufflen;
         }
 
-        // pad the buffered block
-        if( wrtbuff && !wrtbuff->Empty() )
-        {
-          // update object size
-          objsize = wrtbuff->GetOffset() + objcfg->datasize;
-          wrtbuff->Pad( objcfg->datasize - wrtbuff->GetBlkSize() );
-          // we need to flush the current write-buffer
-          Flush();
-        }
-        wrtbuff.reset( new WrtBuff( *objcfg, offset, WrtMode::New ) );
+        LFH               lfh;
+        std::string       fn;
+        const void       *buffer;
+        uint32_t          bufflen;
+        static const int  iovcnt = 3;
+        iovec             iov[iovcnt];
+        uint32_t          total_size;
+      };
 
-        for( uint64_t blk = objsize; blk < lastblk; blk += objcfg->datasize )
+      struct CentralDirectory
+      {
+          CentralDirectory( const ObjCfg *objcfg ) : cd_buffer( DefaultSize( objcfg ) ), cd_size( 0 ), cd_crc32c( 0 ), cd_offset( 0 ), nb_entries( 0 )
+          {
+          }
+
+          CentralDirectory( CentralDirectory && cd ) : cd_buffer( std::move( cd.cd_buffer ) ), cd_size( cd.cd_size ), cd_crc32c( cd.cd_crc32c ), cd_offset( cd.cd_offset ), nb_entries( cd.nb_entries )
+          {
+          }
+
+          ~CentralDirectory()
+          {
+          }
+
+          inline void Add( const std::string &fn, uint32_t size, uint32_t checksum, uint32_t offset )
+          {
+            uint32_t reqsize = CDH::size + fn.size();
+            // if we don't have enough space in the buffer double its size
+            if( reqsize > cd_buffer.GetSize() - cd_buffer.GetCursor() )
+              cd_buffer.ReAllocate( cd_buffer.GetSize() * 2 );
+
+            // Use placement new to construct Central Directory File Header in the buffer
+            new ( cd_buffer.GetBufferAtCursor() ) CDH( size, checksum, fn.size(), offset );
+            cd_buffer.AdvanceCursor( CDH::size );
+
+            // Copy the File Name into the buffer
+            memcpy( cd_buffer.GetBufferAtCursor(), fn.c_str(), fn.size() );
+            cd_buffer.AdvanceCursor( fn.size() );
+
+            // Update the Central Directory size and offset
+            cd_size += CDH::size + fn.size();
+            cd_offset = offset + LFH::size + fn.size() + size;
+
+            // Update the number of entries in the Central Directory
+            ++nb_entries;
+          }
+
+          inline bool Empty()
+          {
+            return cd_buffer.GetCursor() == 0;
+          }
+
+          void CreateEOCD()
+          {
+            // make sure we have enough space for the End Of Central Directory record
+            if( EOCD::size >  cd_buffer.GetSize() - cd_buffer.GetCursor() )
+              cd_buffer.ReAllocate( cd_buffer.GetSize() + EOCD::size );
+
+            // Now create End of Central Directory record
+            new ( cd_buffer.GetBufferAtCursor() ) EOCD( nb_entries, cd_size, cd_offset );
+            cd_buffer.AdvanceCursor( EOCD::size );
+          }
+
+          XrdCl::Buffer cd_buffer;
+          uint32_t      cd_size;
+          uint32_t      cd_crc32c;
+
+        private:
+
+          inline static size_t DefaultSize( const ObjCfg *objcfg )
+          {
+            // this should more or less give us space to accommodate 32 headers
+            // witch with 32MB block corresponds to 1GB of data
+
+            return ( CDH::size + objcfg->obj.size() + 6 /*account for the BLKID and CHID*/ ) * 32 + EOCD::size;
+          }
+
+          uint32_t               cd_offset;
+          uint16_t               nb_entries;
+      };
+
+
+      struct MetaDataCtx
+      {
+          MetaDataCtx( ObjCfg *objcfg, std::vector<CentralDirectory> &dirs ) : iovcnt( 0 ), iov( nullptr ), cd( objcfg )
+          {
+            size_t size = objcfg->plgr.size();
+
+            // figure out how many buffers will we need
+            for( size_t i = 0; i < size; ++i )
+            {
+              if( dirs[i].Empty() ) continue;
+
+              iovcnt += 3;                  // a buffer for LFH, a buffer for file name, a buffer for the binary data
+            }
+            ++iovcnt; // a buffer for the Central Directory
+
+            // now once we know the size allocate the iovec
+            iov = new iovec[iovcnt];
+            int index = 0;
+            uint32_t offset = 0;
+
+            // add the Local File Headers and respective binary data
+            for( size_t i = 0; i < size; ++i )
+            {
+              if( dirs[i].Empty() ) continue;
+
+              std::string fn = objcfg->plgr[i] + objcfg->obj + ".data.zip";
+              fns.emplace_back( fn );
+              lheaders.emplace_back( dirs[i].cd_size, dirs[i].cd_crc32c, fn.size() );
+
+              // Local File Header
+              iov[index].iov_base = lheaders.back().get_buff();
+              iov[index].iov_len  = LFH::size;
+              ++index;
+
+              // File Name
+              iov[index].iov_base = (void*)fns.back().c_str();
+              iov[index].iov_len  = fns.back().size();
+              ++index;
+
+              // Binary Data
+              iov[index].iov_base = dirs[i].cd_buffer.GetBuffer();
+              iov[index].iov_len  = dirs[i].cd_buffer.GetCursor() - EOCD::size;
+              ++index;
+
+              // update Central Directory
+              cd.Add( fn, dirs[i].cd_size, dirs[i].cd_crc32c, offset );
+
+              // update the offset
+              offset += LFH::size + fn.size() + dirs[i].cd_size;
+            }
+
+            // add the Central Directory and End Of Central Directory record
+            cd.CreateEOCD();
+            iov[index].iov_base = cd.cd_buffer.GetBuffer();
+            iov[index].iov_len  = cd.cd_buffer.GetCursor();
+            ++index;
+          }
+
+          ~MetaDataCtx()
+          {
+            delete[] iov;
+          }
+
+          int    iovcnt;
+          iovec *iov;
+
+        private:
+
+          std::list<LFH>         lheaders;
+          std::list<std::string> fns;
+          CentralDirectory       cd;
+      };
+
+      struct BlockMetadata
+      {
+          std::vector<std::string> URLS;
+      };
+
+      XrdCl::File& ToFile( const std::string &url )
+      {
+        for( size_t i = 0; i < objcfg->plgr.size(); ++i )
         {
-          wrthandler.IncCnt();
-          CreateEmptyBlock( objname, signature, plgr, blk / objcfg->datasize, &wrthandler );
+          std::string u = objcfg->plgr[i] + objcfg->obj + ".data.zip";
+          if( u == url ) return files[i];
         }
 
-        // if the new data are not aligned with the block size we need to pad them
-        if( lastblk != offset ) wrtbuff->Pad( offset - lastblk );
+        throw std::exception(); // TODO
       }
 
-      XrdCl::URL               url;
-      uint64_t                 objsize;
-      std::string              objname;
-      std::string              signature;
-      std::unique_ptr<ObjCfg>  objcfg;
+//      void OpenForWrite( XrdCl::ResponseHandler *handler );
+//
+//      void OpenForRead( XrdCl::ResponseHandler *handler );
+//
+//      void CloseAfterWrite( XrdCl::ResponseHandler *handler );
+//
+//      void CloseAfterRead( XrdCl::ResponseHandler *handler );
+//
+//      void WriteBlock();
+//
+//      void ParseMetadata( const void *buffer, uint32_t length );
 
-      placement_group          plgr;
+      // common
+      std::unique_ptr<ObjCfg>            objcfg;
+      std::vector<XrdCl::File>           files;
+      OpenMode mode;
 
-      std::unique_ptr<WrtBuff> wrtbuff;
-      StrmWrtHandler           wrthandler;
-      std::shared_ptr<RdBuff>  rdbuff;
+      // For writing
+      std::unique_ptr<std::atomic<uint32_t>[]>     offsets;
+      std::unique_ptr<WrtBuff>                     wrtbuff;
+      std::queue<std::future<XrdCl::XRootDStatus>> pending_wrts;
+      std::vector<CentralDirectory>                dirs;
+
+      // For reading
+      // mapping from block ID to a vector index by chunk ID containing a tuple of URL, offset and size
+      std::unordered_map<uint64_t, std::vector<std::tuple<std::string,uint32_t, uint32_t>>> metadata;
+
+
+      std::unique_ptr<ObjOperation> operation;
   };
 
 } /* namespace XrdEc */
 
-#endif /* SRC_XRDEC_XRDECDATAOBJECT_HH_ */
+#endif /* SRC_API_TEST_XRDECDATAOBJECT_HH_ */

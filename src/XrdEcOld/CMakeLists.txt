@@ -64,14 +64,15 @@ link_directories( ${ISAL_LIBDIR} )
 include_directories( ${ISAL_INCDIR} )
 #add_dependencies
 
+#-------------------------------------------------------------------------------
+# Shared library version
+#-------------------------------------------------------------------------------
+set( XRD_EC_VERSION   1.0.0 )
+set( XRD_EC_SOVERSION 1 )
 
 #-------------------------------------------------------------------------------
 # The XrdEc shared library
 #-------------------------------------------------------------------------------
-
-set( XRD_EC_VERSION   1.0.0 )
-set( XRD_EC_SOVERSION 1 )
-
 add_library(
   XrdEc
   SHARED
@@ -80,12 +81,11 @@ add_library(
   XrdEcObjCfg.hh
   XrdEcRedundancyProvider.hh   XrdEcRedundancyProvider.cc 
   XrdEcUtilities.hh            XrdEcUtilities.cc
+  XrdEcRandomRead.hh           XrdEcRandomRead.cc
+  XrdEcWriteBlock.hh           XrdEcWriteBlock.cc
+  XrdEcReadBlock.hh            XrdEcReadBlock.cc
+  XrdEcTruncate.hh             XrdEcTruncate.cc
   XrdEcScheduleHandler.hh      XrdEcScheduleHandler.cc
-  XrdEcWrtBuff.hh
-  XrdEcZipUtilities.hh
-  XrdEcThreadPool.hh
-  XrdEcStrmReader.hh           XrdEcStrmReader.cc
-  XrdEcStrmWriter.hh           XrdEcStrmWriter.cc
 )
 
 target_link_libraries(
@@ -105,6 +105,71 @@ set_target_properties(
   SOVERSION ${XRD_EC_SOVERSION} )
   
 add_dependencies( XrdEc isa-l )
+
+
+#-------------------------------------------------------------------------------
+# Modules
+#-------------------------------------------------------------------------------
+set( LIB_XRD_EC  XrdClEc-${PLUGIN_VERSION} )
+
+#-------------------------------------------------------------------------------
+# The XrdEc module
+#-------------------------------------------------------------------------------
+add_library(
+  ${LIB_XRD_EC}
+  MODULE
+  XrdEcClientPlugIn.hh         XrdEcClientPlugIn.cc
+  XrdEcClientPlugInFactory.hh  XrdEcClientPlugInFactory.cc
+) 
+
+target_link_libraries(
+  ${LIB_XRD_EC}
+  XrdEc
+)
+
+set_target_properties(
+  ${LIB_XRD_EC}
+  PROPERTIES
+  INTERFACE_LINK_LIBRARIES ""
+  LINK_INTERFACE_LIBRARIES "" )
+  
+add_dependencies( ${LIB_XRD_EC} isa-l )
+
+
+#-------------------------------------------------------------------------------
+# The XrdEc2 shared library
+#-------------------------------------------------------------------------------
+add_library(
+  XrdEc2
+  SHARED
+  v2zip/XrdEcDataObject.hh           v2zip/XrdEcDataObject.cc
+  v2zip/XrdEcConfig.hh
+  v2zip/XrdEcObjCfg.hh
+  v2zip/XrdEcRedundancyProvider.hh   v2zip/XrdEcRedundancyProvider.cc 
+  v2zip/XrdEcUtilities.hh            v2zip/XrdEcUtilities.cc
+  v2zip/XrdEcScheduleHandler.hh      v2zip/XrdEcScheduleHandler.cc
+  v2zip/XrdEcWrtBuff.hh
+  v2zip/XrdEcZipUtilities.hh
+  v2zip/XrdEcThreadPool.hh
+)
+
+target_link_libraries(
+  XrdEc2
+  XrdPosix
+  XrdCl
+  XrdUtils
+  isal
+)
+
+set_target_properties(
+  XrdEc2
+  PROPERTIES
+  INTERFACE_LINK_LIBRARIES ""
+  LINK_INTERFACE_LIBRARIES ""
+  VERSION   ${XRD_EC_VERSION}
+  SOVERSION ${XRD_EC_SOVERSION} )
+  
+add_dependencies( XrdEc2 isa-l )
 
 
 

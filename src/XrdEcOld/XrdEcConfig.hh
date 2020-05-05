@@ -38,7 +38,7 @@ namespace XrdEc
         key += ':';
         key += std::to_string( objcfg.nbparity );
         key += '-';
-        key += std::to_string( uint8_t( objcfg.datasize ) );
+        key += std::to_string( uint8_t( objcfg.datasize / ObjCfg::_1MB ) );
 
         auto itr = redundancies.find( key );
         if( itr == redundancies.end() )

@@ -95,7 +95,7 @@ namespace XrdEc
   {
     public:
 
-      WrtBuff( const ObjCfg &objcfg, uint64_t offset) : objcfg( objcfg ), wrtbuff( BufferPool::Instance().Create( objcfg ) )
+      WrtBuff( const ObjCfg &objcfg, uint64_t offset, WrtMode mode ) : objcfg( objcfg ), wrtbuff( BufferPool::Instance().Create( objcfg ) ), wrtmode( mode )
       {
         this->offset = offset - ( offset % objcfg.datasize );
         stripes.reserve( objcfg.nbchunks );
@@ -105,7 +105,8 @@ namespace XrdEc
       WrtBuff( WrtBuff && wrtbuff ) : objcfg( wrtbuff.objcfg ),
                                       offset( wrtbuff.offset ),
                                       wrtbuff( std::move( wrtbuff.wrtbuff ) ),
-                                      stripes( std::move( wrtbuff.stripes ) )
+                                      stripes( std::move( wrtbuff.stripes ) ),
+                                      wrtmode( wrtbuff.wrtmode )
       {
       }
 
@@ -205,6 +206,11 @@ namespace XrdEc
         cfg.GetRedundancy( objcfg ).compute( stripes );
       }
 
+      WrtMode GetWrtMode()
+      {
+        return wrtmode;
+      }
+
       uint64_t GetOffset()
       {
         return offset;
@@ -216,6 +222,7 @@ namespace XrdEc
       uint64_t       offset;
       XrdCl::Buffer  wrtbuff;
       stripes_t      stripes;
+      WrtMode        wrtmode;
   };
 
 

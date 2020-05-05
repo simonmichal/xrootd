@@ -31,6 +31,7 @@ endif()
 
 if( NOT XRDCL_ONLY )
   add_subdirectory( XrdEc )
+  add_subdirectory( api_test )
   include( XrdServer )
   include( XrdDaemons )
   include( XrdFrm )
