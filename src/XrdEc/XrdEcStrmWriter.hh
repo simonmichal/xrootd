@@ -47,12 +47,16 @@ namespace XrdEc
 
         std::vector<XrdCl::Pipeline> opens;
         opens.reserve( size );
-        files.resize( size );
+        // initialize all file objects
+        files.reserve( size );
+        for( size_t i = 0; i < size; ++i )
+          files.emplace_back( new XrdCl::File() );
 
         for( size_t i = 0; i < size; ++i )
         {
           std::string url = objcfg->plgr[i] + objcfg->obj + ".zip";
-          opens.emplace_back( XrdCl::Open( files[i], url, XrdCl::OpenFlags::New | XrdCl::OpenFlags::Write ) );
+          auto file = files[i];
+          opens.emplace_back( XrdCl::Open( *file, url, XrdCl::OpenFlags::New | XrdCl::OpenFlags::Write ) >> [file]( XrdCl::XRootDStatus& ){ } );
         }
 
         XrdCl::Async( XrdCl::Parallel( opens ) >> handler ); // TODO Not all need to succeed !!!
@@ -105,7 +109,8 @@ namespace XrdEc
                 if( !dirs[i].Empty() )
                 {
                   uint32_t offset = offsets[i];
-                  closes.emplace_back( XrdCl::Write( files[i], offset, dirs[i].cd_buffer.GetCursor(), dirs[i].cd_buffer.GetBuffer() ) | XrdCl::Close( files[i] ) );
+                  auto file = files[i];
+                  closes.emplace_back( XrdCl::Write( *file, offset, dirs[i].cd_buffer.GetCursor(), dirs[i].cd_buffer.GetBuffer() ) | XrdCl::Close( *file ) >> [file]( XrdCl::XRootDStatus& ){ } );
                 }
               }
 

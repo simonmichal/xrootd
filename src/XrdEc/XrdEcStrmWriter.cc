@@ -44,7 +44,8 @@ namespace XrdEc
       uint32_t checksum = checksums[i].get();
       std::shared_ptr<WrtCtx> wrtctx( new WrtCtx( checksum, fn, wrtbuff->GetChunk( i ), wrtbuff->GetStrpSize( i ) ) );
       uint32_t offset = offsets[ fileid[i] ].fetch_add( wrtctx->total_size );
-      writes.emplace_back( XrdCl::WriteV( files[ fileid[i] ], offset, wrtctx->iov, wrtctx->iovcnt ) >> [wrtctx, i]( XrdCl::XRootDStatus& ){ } ); // TODO fallback to spare if fails !!!
+      auto file = files[fileid[i]];
+      writes.emplace_back( XrdCl::WriteV( *file, offset, wrtctx->iov, wrtctx->iovcnt ) >> [file, wrtctx, i]( XrdCl::XRootDStatus& ){ } ); // TODO fallback to spare if fails !!!
       // create respective CDH record
       dirs[fileid[i]].Add( fn, wrtbuff->GetStrpSize( i ), checksum, offset ); // TODO this needs to be updated once we know the write was successful !!!
                                                                                          // TODO once we support spares !!!

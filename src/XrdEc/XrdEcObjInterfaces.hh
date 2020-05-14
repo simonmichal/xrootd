@@ -75,7 +75,7 @@ namespace XrdEc
     protected:
 
       std::unique_ptr<ObjCfg>  objcfg;
-      std::vector<XrdCl::File> files;
+      std::vector<std::shared_ptr<XrdCl::File>> files;
   };
 
   struct CentralDirectory
