@@ -119,8 +119,8 @@ class StreamSimulator
 
     std::string get_obj_name();
 
-    void copy_2GB( const XrdEc::ObjCfg &objcfg );
-    void copy_2GB_fork( const XrdEc::ObjCfg &objcfg );
+    bool copy_2GB( const XrdEc::ObjCfg &objcfg, uint64_t cpnb );
+    bool copy_2GB_fork( const XrdEc::ObjCfg &objcfg, uint64_t cpnb );
 
     static std::atomic<uint64_t>  cpcnt;
     static std::atomic<uint64_t>  cumulative_throughput_mb;

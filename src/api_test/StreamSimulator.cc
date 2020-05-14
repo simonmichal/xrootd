@@ -50,7 +50,7 @@ StreamSimulator::StreamSimulator( PlacementHandler &plhandler, uint8_t srvnb, ui
 //------------------------------------------------------------------------------
 // Copy 2GB which corresponds to TF
 //------------------------------------------------------------------------------
-void StreamSimulator::copy_2GB( const XrdEc::ObjCfg &objcfg )
+bool StreamSimulator::copy_2GB( const XrdEc::ObjCfg &objcfg, uint64_t cpnb )
 {
   XrdCl::Log *log = XrdCl::DefaultEnv::GetLog();
   XrdEc::DataObject obj;
@@ -65,7 +65,7 @@ void StreamSimulator::copy_2GB( const XrdEc::ObjCfg &objcfg )
   {
     std::cout << "Open failed : " << s1->ToString() << std::endl;
     ++errcnt;
-    return;
+    return false;
   }
 
   // write 2GB, we write
@@ -86,7 +86,7 @@ void StreamSimulator::copy_2GB( const XrdEc::ObjCfg &objcfg )
     {
       std::cout << "Write failed : " << s2->ToString() << std::endl;
       ++errcnt;
-      return;
+      return false;
     }
 
     offset      += size;
@@ -103,20 +103,27 @@ void StreamSimulator::copy_2GB( const XrdEc::ObjCfg &objcfg )
   {
     std::cout << "Close failed : " << s3->ToString() << std::endl;
     ++errcnt;
-    return;
+    return false;
   }
+
+  return true;
 }
 
-void StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg )
+bool StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg, uint64_t cpnb )
 {
   XrdCl::Log *log = XrdCl::DefaultEnv::GetLog();
   XrdEc::DataObject obj;
+
+
 
   pid_t pid = fork();
 
   if( pid == 0 )
   {
     //child
+    std::string logfn = "xrdcl.stream." + std::to_string( cpnb ) + ".txt";
+    XrdCl::DefaultEnv::SetLogLevel( "Dump" );
+    XrdCl::DefaultEnv::SetLogFile( logfn );
 
     // open the object
     log->Info( XrdCl::UtilityMsg, "Opening %s.", objcfg.obj.c_str() );
@@ -126,7 +133,7 @@ void StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg )
     std::unique_ptr<XrdCl::XRootDStatus> s1( h1.GetStatus() );
     if( !s1->IsOK() )
     {
-      std::cout << "Open failed : " << s1->ToString() << std::endl;
+      std::cout << "Open failed : " << s1->ToString() << " (cpnb=" <<cpnb << ")" << std::endl;
       exit( 1 );
     }
 
@@ -146,7 +153,7 @@ void StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg )
       std::unique_ptr<XrdCl::XRootDStatus> s2( h2.GetStatus() );
       if( !s2->IsOK() )
       {
-        std::cout << "Write failed : " << s2->ToString() << std::endl;
+        std::cout << "Write failed : " << s2->ToString() << " (cpnb=" <<cpnb << ")" << std::endl;
         exit( 1 );
       }
 
@@ -162,7 +169,7 @@ void StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg )
     std::unique_ptr<XrdCl::XRootDStatus> s3( h3.GetStatus() );
     if( !s3->IsOK() )
     {
-      std::cout << "Close failed : " << s3->ToString() << std::endl;
+      std::cout << "Close failed : " << s3->ToString() << " (cpnb=" <<cpnb << ")" << std::endl;
       exit( 1 );
     }
 
@@ -172,7 +179,7 @@ void StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg )
   {
     ++errcnt;
     std::cout << "Failed to fork new process!" << std::endl;
-    return;
+    return false;
   }
   else
   {
@@ -185,14 +192,19 @@ void StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg )
 
       if( WIFEXITED(status) )
       {
-        if( WEXITSTATUS(status) ) ++errcnt;
-        return;
+        if( WEXITSTATUS(status) )
+        {
+          ++errcnt;
+          return false;
+        }
+
+        return true;
       }
 
       if( WIFSIGNALED(status) )
       {
         ++errcnt;
-        return;
+        return false;
       }
     }
   }
@@ -210,22 +222,23 @@ void StreamSimulator::simulate_stream( long long shift )
 
   while( true )
   {
+    uint64_t cpnb = cpcnt.fetch_add( 1 );
     auto start = time_nsec();
     XrdEc::ObjCfg objcfg( get_obj_name(), "0001", 10, 2, _1MB );
     objcfg.plgr = plhandler.GetPlacement();
-    copy_2GB_fork( objcfg );
+    bool success = copy_2GB_fork( objcfg, cpnb );
     auto stop = time_nsec();
 
     auto duration_nsec = stop.count() - start.count();
     if( duration_nsec > to_nsec( 40 ) )
     {
-      std::cout << "2GB copy took too long!" << std::endl;
+      std::cout << "2GB copy took too long: " << cpnb << std::endl;
       ++exceeded40sec;
     }
     else
       std::cout << "Copied 2GB in " << ( duration_nsec / 1000000 ) << " ms." << std::endl;
 
-    ++cpcnt;
+
 
     double duration_ms = duration_nsec / 1000000.0;
     double duration_s  = duration_ms   / 1000.0;
@@ -246,12 +259,16 @@ void StreamSimulator::simulate_stream( long long shift )
     std::cout << "Exceeded 40s count : " << exceeded40sec.load() << std::endl;
     std::cout << "Running for        : " << running_for << " seconds." << std::endl;
 
-    fout << "Copied " << cpcnt << " TF  : \n";
+    fout << "Copied " << cpnb << " TF  : \n";
     fout << "Data transfer rate : " << dta <<  " MB/s\n";
     fout << "Duration           : " << duration_ms   << " ms.\n";
     fout << "Error count        : " << errcnt        << '\n';
     fout << "Exceeded 40s count : " << exceeded40sec << '\n';
     fout << "Running for        : " << running_for << " seconds.\n";
+    if( duration_s > 40 )
+      fout << "Duration exceeded 40s.\n";
+    if( !success )
+      fout << "Transfer failed due to an error!\n";
     fout << std::endl;
     fout.flush();
 
