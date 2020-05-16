@@ -121,9 +121,9 @@ bool StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg, uint64_t cpnb 
   if( pid == 0 )
   {
     //child
-    std::string logfn = "xrdcl.stream." + std::to_string( cpnb ) + ".txt";
-    XrdCl::DefaultEnv::SetLogLevel( "Dump" );
-    XrdCl::DefaultEnv::SetLogFile( logfn );
+//    std::string logfn = "xrdcl.stream." + std::to_string( cpnb ) + ".txt";
+//    XrdCl::DefaultEnv::SetLogLevel( "Dump" );
+//    XrdCl::DefaultEnv::SetLogFile( logfn );
 
     // open the object
     log->Info( XrdCl::UtilityMsg, "Opening %s.", objcfg.obj.c_str() );
@@ -215,6 +215,10 @@ bool StreamSimulator::copy_2GB_fork( const XrdEc::ObjCfg &objcfg, uint64_t cpnb 
 //------------------------------------------------------------------------------
 void StreamSimulator::simulate_stream( long long shift )
 {
+  XrdCl::DefaultEnv::GetEnv()->PutInt( "StreamTimeout",  5  );
+  XrdCl::DefaultEnv::GetEnv()->PutInt( "RequestTimeout", 20 );
+  XrdCl::DefaultEnv::GetEnv()->PutInt( "ConnectionWindow", 10 );
+
   std::string logfn = "stream." + std::to_string( shift ) + ".txt";
   std::fstream fout( logfn, std::fstream::out );
 
