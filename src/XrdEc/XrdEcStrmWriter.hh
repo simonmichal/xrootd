@@ -59,7 +59,7 @@ namespace XrdEc
           opens.emplace_back( XrdCl::Open( *file, url, XrdCl::OpenFlags::New | XrdCl::OpenFlags::Write ) >> [file]( XrdCl::XRootDStatus& ){ } );
         }
 
-        XrdCl::Async( XrdCl::Parallel( opens ) >> handler ); // TODO Not all need to succeed !!!
+        XrdCl::Async( XrdCl::Parallel( opens ).AtLeast( objcfg->nbchunks ) >> handler );
       }
 
       void Write( uint64_t offset, uint32_t size, const void *buffer, XrdCl::ResponseHandler *handler )
@@ -196,6 +196,22 @@ namespace XrdEc
           XrdCl::XRootDStatus                               wrt_status;
           std::function<void( const XrdCl::XRootDStatus& )> flash;
       };
+
+      inline static XrdCl::rcvry_func WrtRecovery( std::vector<std::shared_ptr<XrdCl::File>> &spares,
+                                                   std::shared_ptr<std::mutex>               &spares_mtx,
+                                                   uint32_t                                   offset,
+                                                   std::shared_ptr<WrtCtx>                   &wrtctx )
+      {
+        return [spares, spares_mtx, offset, wrtctx] ( const XrdCl::XRootDStatus &st ) mutable
+          {
+            std::unique_lock<std::mutex> lck( *spares_mtx );
+            if( spares.empty() ) throw std::exception();
+            std::shared_ptr<XrdCl::File> file = spares.back();
+            spares.pop_back();
+            XrdCl::rcvry_func WrtRcvry = spares.empty() ? nullptr : WrtRecovery( spares, spares_mtx, offset, wrtctx );
+            return XrdCl::WriteV( *file, offset, wrtctx->iov, wrtctx->iovcnt ).Recovery( WrtRcvry ).ToHandled();
+          };
+      }
 
       void WriteBlock();
 
