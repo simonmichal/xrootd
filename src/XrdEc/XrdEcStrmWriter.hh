@@ -137,6 +137,12 @@ namespace XrdEc
 
     private:
 
+      struct spare_files
+      {
+        std::mutex mtx;
+        std::vector<std::shared_ptr<XrdCl::File>> files;
+      };
+
       struct WrtCtx
       {
         WrtCtx( uint32_t checksum, const std::string &fn, const void *buffer, uint32_t bufflen ) : lfh( bufflen, checksum, fn.size() ), fn( fn), buffer( buffer ), bufflen( bufflen ), total_size( 0 )
@@ -197,18 +203,17 @@ namespace XrdEc
           std::function<void( const XrdCl::XRootDStatus& )> flash;
       };
 
-      inline static XrdCl::rcvry_func WrtRecovery( std::vector<std::shared_ptr<XrdCl::File>> &spares,
-                                                   std::shared_ptr<std::mutex>               &spares_mtx,
-                                                   uint32_t                                   offset,
-                                                   std::shared_ptr<WrtCtx>                   &wrtctx )
+      inline static XrdCl::rcvry_func WrtRecovery( std::shared_ptr<spare_files> &spares,
+                                                   uint32_t                      offset,
+                                                   std::shared_ptr<WrtCtx>      &wrtctx )
       {
-        return [spares, spares_mtx, offset, wrtctx] ( const XrdCl::XRootDStatus &st ) mutable
+        return [spares, offset, wrtctx]( const XrdCl::XRootDStatus &st ) mutable
           {
-            std::unique_lock<std::mutex> lck( *spares_mtx );
-            if( spares.empty() ) throw std::exception();
-            std::shared_ptr<XrdCl::File> file = spares.back();
-            spares.pop_back();
-            XrdCl::rcvry_func WrtRcvry = spares.empty() ? nullptr : WrtRecovery( spares, spares_mtx, offset, wrtctx );
+            std::unique_lock<std::mutex> lck( spares->mtx );
+            if( spares->files.empty() ) throw std::exception();
+            std::shared_ptr<XrdCl::File> file = spares->files.back();
+            spares->files.pop_back();
+            XrdCl::rcvry_func WrtRcvry = spares->files.empty() ? nullptr : WrtRecovery( spares, offset, wrtctx );
             return XrdCl::WriteV( *file, offset, wrtctx->iov, wrtctx->iovcnt ).Recovery( WrtRcvry ).ToHandled();
           };
       }

@@ -37,16 +37,17 @@ namespace XrdEc
     std::vector<XrdCl::Pipeline> writes;
     writes.reserve( size );
 
-    std::vector<size_t> fileid( size );
+    std::vector<size_t> fileid( files.size() );
     std::iota( fileid.begin(), fileid.end(), 0 );
     std::shuffle( fileid.begin(), fileid.end(), random_engine );
 
-    std::vector<std::shared_ptr<XrdCl::File>> spares;
+
+    std::vector<std::shared_ptr<XrdCl::File>> tmp;
     auto itr = fileid.begin() + objcfg->nbchunks;
     for( ; itr != fileid.end() ; ++itr )
-      spares.emplace_back( files[*itr] );
-    std::shared_ptr<std::mutex> spares_mtx;
-
+      tmp.emplace_back( files[*itr] );
+    std::shared_ptr<spare_files> spares = std::make_shared<spare_files>();
+    spares->files.swap( tmp );
 
     for( size_t i = 0; i < size; ++i )
     {
@@ -55,8 +56,8 @@ namespace XrdEc
       std::shared_ptr<WrtCtx> wrtctx( new WrtCtx( checksum, fn, wrtbuff->GetChunk( i ), wrtbuff->GetStrpSize( i ) ) );
       uint32_t offset = offsets[ fileid[i] ].fetch_add( wrtctx->total_size );
       auto file = files[fileid[i]];
-      XrdCl::rcvry_func WrtRcvry = spares.empty() ? nullptr : WrtRecovery( spares, spares_mtx, offset, wrtctx );
-      writes.emplace_back( XrdCl::WriteV( *file, offset, wrtctx->iov, wrtctx->iovcnt ).Recovery( WrtRcvry ) >> [file, wrtctx]( XrdCl::XRootDStatus& ){ } ); // TODO fallback to spare if fails !!!
+      XrdCl::rcvry_func WrtRcvry = spares->files.empty() ? nullptr : WrtRecovery( spares, offset, wrtctx );
+      writes.emplace_back( XrdCl::WriteV( *file, offset, wrtctx->iov, wrtctx->iovcnt ).Recovery( WrtRcvry ) >> [file, wrtctx]( XrdCl::XRootDStatus& ){ } );
       // create respective CDH record
       dirs[fileid[i]].Add( fn, wrtbuff->GetStrpSize( i ), checksum, offset ); // TODO this needs to be updated once we know the write was successful !!!
                                                                                          // TODO once we support spares !!!
