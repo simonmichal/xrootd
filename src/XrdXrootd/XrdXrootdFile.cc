@@ -146,6 +146,8 @@ XrdXrootdFile::~XrdXrootdFile()
    if (fhProc) fhProc->Avail(fHandle);
 
    if (FileKey) free(FileKey);
+
+   asyncWriteHelper.Stop();
 }
 
 /******************************************************************************/

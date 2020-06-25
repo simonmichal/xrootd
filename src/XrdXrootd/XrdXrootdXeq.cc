@@ -2976,7 +2976,7 @@ int XrdXrootdProtocol::do_Write()
   
 int XrdXrootdProtocol::do_WriteAll()
 {
-   int rc, Quantum = (myIOLen > maxBuffsz ? maxBuffsz : myIOLen);
+   int rc, Quantum = myIOLen; //(myIOLen > maxBuffsz ? maxBuffsz : myIOLen);
 
 // Make sure we have a large enough buffer
 //
@@ -2986,7 +2986,7 @@ int XrdXrootdProtocol::do_WriteAll()
 
 // Now write all of the data (XrdXrootdProtocol.C defines getData())
 //
-   while(myIOLen > 0)
+//   while(myIOLen > 0)
         {if ((rc = getData("data", argp->buff, Quantum)))
             {if (rc > 0) 
                 {Resume = &XrdXrootdProtocol::do_WriteCont;
@@ -2995,17 +2995,19 @@ int XrdXrootdProtocol::do_WriteAll()
                 }
              return rc;
             }
-         if ((rc = myFile->XrdSfsp->write(myOffset, argp->buff, Quantum)) < 0)
-            {myIOLen  = myIOLen-Quantum; myEInfo[0] = rc;
-             return do_WriteNone();
-            }
-         myOffset += Quantum; myIOLen -= Quantum;
-         if (myIOLen < Quantum) Quantum = myIOLen;
+         myFile->enqueue_write(myOffset, Quantum, argp->buff, Response );
+//         if ((rc = myFile->XrdSfsp->write(myOffset, argp->buff, Quantum)) < 0)
+//            {myIOLen  = myIOLen-Quantum; myEInfo[0] = rc;
+//             return do_WriteNone();
+//            }
+//         myOffset += Quantum; myIOLen -= Quantum;
+//         if (myIOLen < Quantum) Quantum = myIOLen;
         }
 
 // All done
 //
-   return Response.Send();
+//   return Response.Send();
+   return 0;
 }
 
 /******************************************************************************/

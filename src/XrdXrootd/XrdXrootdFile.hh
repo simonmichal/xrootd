@@ -30,11 +30,20 @@
 /******************************************************************************/
 
 #include <string.h>
+
 #include <vector>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <atomic>
+#include <condition_variable>
+#include <tuple>
+#include <queue>
 
 #include "XProtocol/XPtypes.hh"
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdXrootd/XrdXrootdFileStats.hh"
+#include "XrdXrootd/XrdXrootdResponse.hh"
 
 /******************************************************************************/
 /*                       X r d X r o o t d F i l e H P                        */
@@ -96,7 +105,85 @@ class XrdXrootdMonitor;
 
 class XrdXrootdFile
 {
+
+  class AsyncWriteHelper
+  {
+    typedef std::vector<char> buffer_t;
+
+    public:
+      AsyncWriteHelper() : started( false )
+      {
+      }
+
+      void Enqueue( long long offset, int length, char *buffer, XrdXrootdResponse &resp )
+      {
+        std::unique_lock<std::mutex> lck( mtx );
+        wrts.emplace( offset, buffer_t( buffer, buffer + length ), resp );
+        cv.notify_all();
+      }
+
+      inline void Start( XrdXrootdFile *file )
+      {
+        bool started_ = started.exchange( true );
+        if( !started_ )
+          writer_thread.reset( new std::thread( RunWriter, this, file ) );
+      }
+
+      inline void Stop()
+      {
+        bool started_ = started.exchange( false );
+        if( started_ )
+        {
+          cv.notify_all();
+          writer_thread->join();
+        }
+      }
+
+    private:
+
+      static void RunWriter( AsyncWriteHelper *self, XrdXrootdFile *file )
+      {
+        while( true )
+        {
+          long long offset = 0;
+          buffer_t  buffer;
+          XrdXrootdResponse resp;
+
+          {
+            std::unique_lock<std::mutex> lck( self->mtx );
+            while( self->wrts.empty() )
+            {
+              if( !self->started ) return;
+              self->cv.wait( lck );
+            }
+            std::tie( offset, buffer, resp ) = std::move( self->wrts.front() );
+            self->wrts.pop();
+          }
+
+          int rc = file->XrdSfsp->write( offset, buffer.data(), buffer.size() );
+          if( rc < 0 )
+            resp.Send(kXR_FSError, file->XrdSfsp->error.getErrText() );
+          resp.Send();
+        }
+      }
+
+      std::atomic<bool> started;
+      std::mutex mtx;
+      std::condition_variable cv;
+      std::queue<std::tuple<long long, buffer_t, XrdXrootdResponse>> wrts;
+
+      std::unique_ptr<std::thread> writer_thread;
+  };
+
+  AsyncWriteHelper asyncWriteHelper;
+
 public:
+
+  void enqueue_write( long long offset, int length, char *buffer, XrdXrootdResponse &resp )
+  {
+    asyncWriteHelper.Start( this );
+    asyncWriteHelper.Enqueue( offset, length, buffer, resp );
+  }
 
 XrdSfsFile        *XrdSfsp;      // -> Actual file object
 union {char       *mmAddr;       // Memory mapped location, if any

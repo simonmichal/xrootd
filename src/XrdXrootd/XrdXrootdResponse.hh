@@ -84,9 +84,9 @@ inline void  Set(XrdXrootdTransit *tp) {Bridge = tp;}
                                          sid[1] = Resp.streamid[1];
                                         }
 
-       XrdXrootdResponse(XrdXrootdResponse &rhs) {Set(rhs.Link);
+       XrdXrootdResponse(const XrdXrootdResponse &rhs) {Set(rhs.Link);
                                                   Set(rhs.Bridge);
-                                                  Set(rhs.Resp.streamid);
+                                                  Set( (kXR_char*) rhs.Resp.streamid);
                                                  }
 
        XrdXrootdResponse() {Link = 0; Bridge = 0; *trsid = '\0';
