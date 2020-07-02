@@ -1094,3 +1094,30 @@ void XrdXrootdProtocol::Reset()
    PrepareCount       = 0;
    if (AppName) {free(AppName); AppName = 0;}
 }
+
+
+void XrdXrootdProtocol::AsyncWriteHelper::RunWriter( AsyncWriteHelper *self )
+{
+  while( true )
+  {
+    XrdXrootdResponse *rsp = 0;
+    XrdXrootdFile *file = 0;
+    long long offset = 0;
+    char *buffer = 0;
+    int length = 0;
+    {
+      std::unique_lock<std::mutex> lck( self->mtx );
+      while( self->wrts.empty() )
+      {
+        if( !self->started ) return;
+        self->cv.wait( lck );
+      }
+      std::tie( file, rsp, offset, buffer, length ) = std::move( self->wrts.front() );
+      self->wrts.pop();
+    }
+    file->XrdSfsp->write( offset, buffer, length );
+    delete[] buffer;
+    rsp->Send();
+    delete rsp;
+  }
+}

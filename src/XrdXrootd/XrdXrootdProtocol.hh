@@ -46,6 +46,15 @@
 #include "XrdXrootd/XrdXrootdResponse.hh"
 #include "XProtocol/XProtocol.hh"
 
+#include <thread>
+#include <queue>
+#include <condition_variable>
+#include <mutex>
+#include <atomic>
+#include <tuple>
+#include <limits>
+#include <iostream>
+
 /******************************************************************************/
 /*                               D e f i n e s                                */
 /******************************************************************************/
@@ -94,6 +103,45 @@ class XrdXrootdXPath;
 
 class XrdXrootdProtocol : public XrdProtocol, public XrdSfsDio, public XrdSfsXio
 {
+
+  class AsyncWriteHelper
+  {
+    typedef std::vector<char> buffer_t;
+
+    public:
+      AsyncWriteHelper() : started( true ), writer_thread( RunWriter, this )
+      {
+      }
+
+      ~AsyncWriteHelper()
+      {
+        started = false;
+        cv.notify_all();
+        writer_thread.join();
+      }
+
+      void Enqueue( XrdXrootdProtocol *protocol, long long offset, char *buff, int length )
+      {
+        XrdXrootdResponse *rsp = new XrdXrootdResponse( protocol->Response );
+        std::unique_lock<std::mutex> lck( mtx );
+        wrts.emplace( protocol->myFile, rsp, offset, buff, length );
+        cv.notify_all();
+      }
+
+    private:
+
+      static void RunWriter( AsyncWriteHelper *self );
+
+      std::atomic<bool> started;
+      std::mutex mtx;
+      std::condition_variable cv;
+      std::queue<std::tuple<XrdXrootdFile*, XrdXrootdResponse*, long long, char*, int>> wrts;
+
+      std::thread writer_thread;
+  };
+
+  AsyncWriteHelper asyncWriteHelper;
+
 friend class XrdXrootdAdmin;
 friend class XrdXrootdAioReq;
 public:

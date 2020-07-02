@@ -66,6 +66,8 @@
 #include "XrdXrootd/XrdXrootdXPath.hh"
 
 #include "XrdVersion.hh"
+
+#include <thread>
   
 /******************************************************************************/
 /*                               G l o b a l s                                */
@@ -2913,7 +2915,7 @@ int XrdXrootdProtocol::do_Truncate()
   
 int XrdXrootdProtocol::do_Write()
 {
-   int retc, pathID;
+   int /*retc,*/ pathID;
    XrdXrootdFHandle fh(Request.write.fhandle);
    numWrites++;
 
@@ -2953,18 +2955,18 @@ int XrdXrootdProtocol::do_Write()
 
 // If we are in async mode, schedule the write to occur asynchronously
 //
-   if (myFile->AsyncMode && !as_syncw)
-      {if (myStalls > as_maxstalls) myStalls--;
-          else if (myIOLen >= as_miniosz && Link->UseCnt() < as_maxperlnk)
-                  {if ((retc = aio_Write()) != -EAGAIN)
-                      {if (retc != -EIO) return retc;
-                       myEInfo[0] = SFS_ERROR;
-                       myFile->XrdSfsp->error.setErrInfo(retc, "I/O error");
-                       return do_WriteNone();
-                      }
-                  }
-       SI->AsyncRej++;
-      }
+//   if (myFile->AsyncMode && !as_syncw)
+//      {if (myStalls > as_maxstalls) myStalls--;
+//          else if (myIOLen >= as_miniosz && Link->UseCnt() < as_maxperlnk)
+//                  {if ((retc = aio_Write()) != -EAGAIN)
+//                      {if (retc != -EIO) return retc;
+//                       myEInfo[0] = SFS_ERROR;
+//                       myFile->XrdSfsp->error.setErrInfo(retc, "I/O error");
+//                       return do_WriteNone();
+//                      }
+//                  }
+//       SI->AsyncRej++;
+//      }
 
 // Just to the i/o now
 //
@@ -2982,18 +2984,21 @@ int XrdXrootdProtocol::do_Write()
   
 int XrdXrootdProtocol::do_WriteAll()
 {
-   int rc, Quantum = (myIOLen > maxBuffsz ? maxBuffsz : myIOLen);
+   int rc, Quantum = /*(myIOLen > maxBuffsz ? maxBuffsz : myIOLen)*/myIOLen;
 
 // Make sure we have a large enough buffer
 //
-   if (!argp || Quantum < halfBSize || Quantum > argp->bsize)
-      {if ((rc = getBuff(0, Quantum)) <= 0) return rc;}
-      else if (hcNow < hcNext) hcNow++;
+//   if (!argp || Quantum < halfBSize || Quantum > argp->bsize)
+//      {if ((rc = getBuff(0, Quantum)) <= 0) return rc;}
+//      else if (hcNow < hcNext) hcNow++;
+
+   char *buffer = new char[Quantum];
 
 // Now write all of the data (XrdXrootdProtocol.C defines getData())
 //
-   while(myIOLen > 0)
-        {if ((rc = getData("data", argp->buff, Quantum)))
+//   while(myIOLen > 0)
+//        {
+         if ((rc = getData("data", /*argp->buff*/ buffer, Quantum)))
             {if (rc > 0) 
                 {Resume = &XrdXrootdProtocol::do_WriteCont;
                  myBlast = Quantum;
@@ -3001,17 +3006,19 @@ int XrdXrootdProtocol::do_WriteAll()
                 }
              return rc;
             }
-         if ((rc = myFile->XrdSfsp->write(myOffset, argp->buff, Quantum)) < 0)
-            {myIOLen  = myIOLen-Quantum; myEInfo[0] = rc;
-             return do_WriteNone();
-            }
-         myOffset += Quantum; myIOLen -= Quantum;
-         if (myIOLen < Quantum) Quantum = myIOLen;
-        }
+//         if ((rc = myFile->XrdSfsp->write(myOffset, argp->buff, Quantum)) < 0)
+//            {myIOLen  = myIOLen-Quantum; myEInfo[0] = rc;
+//             return do_WriteNone();
+//            }
+//         myOffset += Quantum; myIOLen -= Quantum;
+//         if (myIOLen < Quantum) Quantum = myIOLen;
+//        }
 
 // All done
 //
-   return Response.Send();
+   asyncWriteHelper.Enqueue( this, myOffset, buffer, Quantum );
+
+   return 0;//Response.Send();
 }
 
 /******************************************************************************/
