@@ -92,6 +92,13 @@ BuildRequires: libcurl-devel
 BuildRequires: libuuid-devel
 BuildRequires: voms-devel >= 2.0.6
 BuildRequires: git
+
+# For ISAL
+BuildRequires: autoconf
+BuildRequires: automake
+BuildRequires: libtool
+BuildRequires: yasm
+
 %if %{have_macaroons}
 BuildRequires: libmacaroons-devel
 %endif
