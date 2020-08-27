@@ -13,7 +13,38 @@ target_link_libraries(
   XrdAppUtils
   dl
   pthread )
-  
+
+#------------------------------------------------------------------------------
+
+#------------------------------------------------------------------------------
+add_executable(
+  throughput_test
+  throughput_test.cc )
+
+target_link_libraries(
+  throughput_test
+  XrdEc
+  XrdCl
+  XrdPosix
+  XrdXml
+  XrdAppUtils
+  dl
+  pthread )
+
+add_executable(
+  throughput_test_fixed
+  throughput_test_fixed.cc )
+
+target_link_libraries(
+  throughput_test_fixed
+  XrdEc
+  XrdCl
+  XrdPosix
+  XrdXml
+  XrdAppUtils
+  dl
+  pthread )
+
 #------------------------------------------------------------------------------
 #
 #------------------------------------------------------------------------------ 
